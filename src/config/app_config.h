@@ -9,20 +9,20 @@
 
 // --- Wi-Fi Configuration ---
 #ifndef WIFI_SSID
-#define WIFI_SSID "JioFiber-7JQa3"
+#define WIFI_SSID "GUEST"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "S4pQqJAdRMFyJQnu"
+#define WIFI_PASSWORD "N@KKUND!@2026#!"
 #endif
 
 // Secondary / Fallback Wi-Fi
 #ifndef WIFI_FALLBACK_SSID
-#define WIFI_FALLBACK_SSID "GUEST"
+#define WIFI_FALLBACK_SSID "JioFiber-7JQa3"
 #endif
 
 #ifndef WIFI_FALLBACK_PASSWORD
-#define WIFI_FALLBACK_PASSWORD "N@KKUND!@2026#!"
+#define WIFI_FALLBACK_PASSWORD "S4pQqJAdRMFyJQnu"
 #endif
 
 #define WIFI_CONNECT_TIMEOUT_MS 12000
@@ -30,7 +30,9 @@
 
 // --- Persistent Offline Storage (LittleFS / SPIFFS) ---
 #define OFFLINE_STORAGE_LIMIT_BYTES (2050000UL) // 2.05 MB maximum per offline media package
-#define OFFLINE_CATALOGUE_PATH "/offline_catalogue.json"
+#define OFFLINE_DIR "/offline"
+#define OFFLINE_CATALOGUE_PATH "/offline/catalogue.json"
+#define LEGACY_OFFLINE_CATALOGUE_PATH "/offline_catalogue.json"
 
 // --- Server & API Configuration ---
 // IMPORTANT: "localhost" will NOT work from the ESP32-CAM!
@@ -66,10 +68,11 @@
 
 // --- Physical Button Configuration (Active-LOW to GND) ---
 #define PIN_BUTTON_SCROLL 2              // GPIO 2: Scroll down (hold to keep scrolling)
-#define PIN_BUTTON_SELECT 15             // GPIO 15: Select / Play / Pause (hold > 1s to stop)
+#define PIN_BUTTON_SELECT 15             // GPIO 15: Select / Play / Pause (hold 2s to save to SPIFFS)
 #define BUTTON_DEBOUNCE_MS 40            // Debounce period
 #define BUTTON_HOLD_SCROLL_INITIAL_MS 450 // Delay before continuous auto-scroll starts
 #define BUTTON_HOLD_SCROLL_RATE_MS 200   // Repeat rate for continuous auto-scroll
-#define BUTTON_LONG_PRESS_MS 1000        // 1 sec hold triggers Stop & Return to menu
+#define BUTTON_LONG_PRESS_MS 1000        // 1 sec hold triggers Stop & Return to menu during playback
+#define BUTTON_HOLD_SAVE_SPIFFS_MS 2000  // 2 sec hold triggers Download to SPIFFS in browse
 
 #endif // APP_CONFIG_H

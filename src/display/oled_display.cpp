@@ -101,9 +101,9 @@ void OLEDDisplay::showCatalogueScreen(size_t currentIndex, size_t totalItems, co
     if (isOfflineMode) {
         m_u8g2.drawStr(4, 46, "Stored on Flash (No Wi-Fi)");
     } else if (isOfflineStored) {
-        m_u8g2.drawStr(4, 46, "[OFFLINE] Saved in flash");
+        m_u8g2.drawStr(4, 46, "[OFFLINE] Saved on Flash");
     } else if (isOfflineCompatible) {
-        m_u8g2.drawStr(4, 46, "SPIFFS Compatible (<=1.9MB)");
+        m_u8g2.drawStr(4, 46, "SPIFFS OK (Hold 15: Save)");
     } else {
         m_u8g2.drawStr(4, 46, "Stream & Play over Wi-Fi");
     }
@@ -112,14 +112,7 @@ void OLEDDisplay::showCatalogueScreen(size_t currentIndex, size_t totalItems, co
     m_u8g2.drawHLine(0, 50, 128);
     m_u8g2.setFont(u8g2_font_5x7_tf);
     m_u8g2.drawStr(2, 60, "[IO2] Next");
-
-    if (isOfflineMode || isOfflineStored) {
-        m_u8g2.drawStr(66, 60, "[IO15] Play");
-    } else if (isOfflineCompatible) {
-        m_u8g2.drawStr(40, 60, "[IO15] DL to Flash");
-    } else {
-        m_u8g2.drawStr(66, 60, "[IO15] Play");
-    }
+    m_u8g2.drawStr(66, 60, "[IO15] Play");
 
     m_u8g2.sendBuffer();
 }
@@ -136,7 +129,7 @@ void OLEDDisplay::showOfflineSavedSuccess(const char* title) {
     char buf[32] = {0};
     snprintf(buf, sizeof(buf), "Saved: %.17s", title ? title : "");
     m_u8g2.drawStr(8, 34, buf);
-    m_u8g2.drawStr(8, 48, "Returning to menu...");
+    m_u8g2.drawStr(8, 48, "Saved to Flash!");
     m_u8g2.sendBuffer();
 }
 

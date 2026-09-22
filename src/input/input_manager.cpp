@@ -17,7 +17,8 @@ InputManager::InputManager()
     , m_selectDebounceMs(0)
     , m_selectIsDown(false)
     , m_selectDownStartMs(0)
-    , m_selectLongPressFired(false) {
+    , m_select1sFired(false)
+    , m_select2sFired(false) {
 }
 
 void InputManager::begin() {
@@ -97,26 +98,34 @@ InputEvent InputManager::poll() {
                 // Button pressed down
                 m_selectIsDown = true;
                 m_selectDownStartMs = now;
-                m_selectLongPressFired = false;
+                m_select1sFired = false;
+                m_select2sFired = false;
                 Serial.printf("[INPUT] Button 2 (GPIO %d) Pressed down...\n", PIN_BUTTON_SELECT);
             } else {
                 // Button released
-                if (m_selectIsDown && !m_selectLongPressFired) {
-                    m_selectIsDown = false;
-                    Serial.printf("[INPUT] Button 2 (GPIO %d) Released -> SHORT PRESS (Select/Pause/Resume)\n", PIN_BUTTON_SELECT);
+                bool wasDown = m_selectIsDown;
+                bool hadLongFired = m_select1sFired || m_select2sFired;
+                m_selectIsDown = false;
+                if (wasDown && !hadLongFired) {
+                    Serial.printf("[INPUT] Button 2 (GPIO %d) Released -> SHORT PRESS (Select/Play/Pause)\n", PIN_BUTTON_SELECT);
                     return InputEvent::SELECT_SHORT_PRESS;
                 }
-                m_selectIsDown = false;
             }
         }
     }
 
-    // Long press check (>= 1.0s hold)
-    if (m_selectIsDown && !m_selectLongPressFired) {
-        if ((now - m_selectDownStartMs) >= BUTTON_LONG_PRESS_MS) {
-            m_selectLongPressFired = true;
-            Serial.printf("[INPUT] Button 2 (GPIO %d) Held >= 1s -> LONG PRESS (Stop / Back to Menu)\n", PIN_BUTTON_SELECT);
+    // Long press checks while held down
+    if (m_selectIsDown) {
+        uint32_t holdDuration = now - m_selectDownStartMs;
+        if (!m_select1sFired && holdDuration >= BUTTON_LONG_PRESS_MS) {
+            m_select1sFired = true;
+            Serial.printf("[INPUT] Button 2 (GPIO %d) Held >= 1s -> LONG PRESS (Stop playback / Back to Menu)\n", PIN_BUTTON_SELECT);
             return InputEvent::SELECT_LONG_PRESS;
+        }
+        if (!m_select2sFired && holdDuration >= BUTTON_HOLD_SAVE_SPIFFS_MS) {
+            m_select2sFired = true;
+            Serial.printf("[INPUT] Button 2 (GPIO %d) Held >= 2s -> HOLD 2S (Download to SPIFFS)\n", PIN_BUTTON_SELECT);
+            return InputEvent::SELECT_HOLD_2S;
         }
     }
 

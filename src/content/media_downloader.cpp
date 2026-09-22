@@ -5,6 +5,7 @@
 #include "../audio/bluetooth/bluetooth.h"
 #include <WiFiClientSecure.h>
 #include <LittleFS.h>
+#include "offline_storage.h"
 
 bool MediaDownloader::downloadToPSRAM(const String& url, uint8_t*& outBuffer, size_t& outSize, size_t maxSize, const char* label) {
     if (!WiFiManager::getInstance().isConnected()) {
@@ -459,6 +460,14 @@ bool MediaDownloader::downloadToFlash(const MediaItem& item, const String& video
     Serial.printf("[DOWNLOAD-FLASH] Storing item to Flash:\n  ID:   %s\n  Name: %s\n", item.id.c_str(), item.name.c_str());
     Serial.println("========================================");
 
+    // Requirement: Clean/delete old offline video first to maximize flash space
+    OfflineStorage::getInstance().clearOfflineStorage();
+
+    // Ensure target directory exists for item
+    String itemDir = String(OFFLINE_DIR) + "/" + item.id;
+    if (!LittleFS.exists(OFFLINE_DIR)) LittleFS.mkdir(OFFLINE_DIR);
+    if (!LittleFS.exists(itemDir)) LittleFS.mkdir(itemDir);
+
     String tmpVideoPath = videoFilePath + ".tmp";
     String tmpAudioPath = audioFilePath + ".tmp";
 
@@ -511,6 +520,31 @@ bool MediaDownloader::downloadToFlash(const MediaItem& item, const String& video
     if (!LittleFS.rename(tmpAudioPath, audioFilePath)) {
         Serial.println("[DOWNLOAD-FLASH] Error: Failed to rename temp audio file.");
         if (LittleFS.exists(tmpAudioPath)) LittleFS.remove(tmpAudioPath);
+        return false;
+    }
+
+    // 6. Physically verify saved files exist and sizes match on disk
+    if (!LittleFS.exists(videoFilePath) || !LittleFS.exists(audioFilePath)) {
+        Serial.println("[DOWNLOAD-FLASH] Error: Saved files missing after rename!");
+        return false;
+    }
+
+    File vf = LittleFS.open(videoFilePath, FILE_READ);
+    File af = LittleFS.open(audioFilePath, FILE_READ);
+    if (!vf || !af) {
+        Serial.println("[DOWNLOAD-FLASH] Error: Cannot open saved files for verification!");
+        if (vf) vf.close();
+        if (af) af.close();
+        return false;
+    }
+    size_t actualV = vf.size();
+    size_t actualA = af.size();
+    vf.close();
+    af.close();
+
+    if (actualV != vSize || actualA != aSize) {
+        Serial.printf("[DOWNLOAD-FLASH] Verification failed! Expected v=%u a=%u, got v=%u a=%u\n",
+                      (unsigned)vSize, (unsigned)aSize, (unsigned)actualV, (unsigned)actualA);
         return false;
     }
 

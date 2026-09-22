@@ -77,13 +77,27 @@ bool ContentManager::saveItemToFlash(size_t index) {
         return false;
     }
 
-    m_catalogue.items[index].isOfflineStored = true;
+    if (!OfflineStorage::getInstance().verifyMediaFiles(item.id, vSize, aSize)) {
+        Serial.printf("[CONTENT] Verification failed for offline item '%s'!\n", item.name.c_str());
+        return false;
+    }
+
+    // Since old flash items were cleared, only this item is stored on flash
+    for (size_t i = 0; i < m_catalogue.items.size(); i++) {
+        m_catalogue.items[i].isOfflineStored = (i == index);
+    }
+
+    OfflineStorage::getInstance().printDiagnostics();
     return true;
 }
 
 bool ContentManager::switchToOfflineLibrary() {
     m_isOfflineMode = true;
     m_catalogue = OfflineStorage::getInstance().getOfflineCatalogue();
+    if (m_catalogue.total == 0) {
+        OfflineStorage::getInstance().rebuildCatalogueFromDisk();
+        m_catalogue = OfflineStorage::getInstance().getOfflineCatalogue();
+    }
     Serial.printf("[CONTENT] Switched to Offline Media Library (%u items found).\n", (unsigned)m_catalogue.total);
     printCatalogue();
     return m_catalogue.total > 0;

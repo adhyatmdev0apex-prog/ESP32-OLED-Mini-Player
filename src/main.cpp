@@ -187,21 +187,39 @@ void loop() {
                                   cur ? cur->name.c_str() : "");
                 }
             } else if (ev == InputEvent::SELECT_SHORT_PRESS) {
-                // Button 2 (GPIO 4): Select media
+                // Button 2 (GPIO 15) SHORT PRESS: Always PLAY selected media!
                 size_t total = ContentManager::getInstance().getItemCount();
                 if (total > 0 && s_selectedCatalogueIndex < total) {
                     const MediaItem* cur = ContentManager::getInstance().getItem(s_selectedCatalogueIndex);
-                    Serial.printf("[BUTTON] Selected [%u]: %s\n", (unsigned)s_selectedCatalogueIndex, cur ? cur->name.c_str() : "");
+                    Serial.printf("[BUTTON] Play selected [%u]: %s (Offline: %s)\n",
+                                  (unsigned)s_selectedCatalogueIndex,
+                                  cur ? cur->name.c_str() : "",
+                                  (cur && cur->isOfflineStored) ? "YES" : "NO");
 
-                    // If connected to Wi-Fi, item is offline-compatible, and not yet saved to flash:
-                    // Action is DOWNLOAD TO FLASH, verify, and return to menu!
-                    if (!ContentManager::getInstance().isOfflineMode() && cur && cur->isSpiffsCompatible && !cur->isOfflineStored) {
+                    OLEDDisplay::getInstance().showDownloadingScreen(cur ? cur->name.c_str() : "");
+                    s_appState = AppState::DOWNLOADING;
+                }
+            } else if (ev == InputEvent::SELECT_HOLD_2S) {
+                // Button 2 (GPIO 15) HELD >= 2 SECONDS: Download SPIFFS-compatible media into flash!
+                size_t total = ContentManager::getInstance().getItemCount();
+                if (total > 0 && s_selectedCatalogueIndex < total) {
+                    const MediaItem* cur = ContentManager::getInstance().getItem(s_selectedCatalogueIndex);
+                    if (ContentManager::getInstance().isOfflineMode()) {
+                        OLEDDisplay::getInstance().showStatusScreen("Offline Mode", "Already Stored", "In Flash");
+                        delay(1500);
+                        displayCurrentCatalogueItem();
+                    } else if (cur && cur->isSpiffsCompatible) {
+                        Serial.printf("[BUTTON] 2s Hold -> Download '%s' to SPIFFS/Flash!\n", cur->name.c_str());
                         OLEDDisplay::getInstance().showDownloadingScreen(cur->name.c_str());
                         s_appState = AppState::SAVING_OFFLINE;
                     } else {
-                        // Normal streaming item or local offline item -> stage to PSRAM and play!
-                        OLEDDisplay::getInstance().showDownloadingScreen(cur ? cur->name.c_str() : "");
-                        s_appState = AppState::DOWNLOADING;
+                        Serial.printf("[BUTTON] 2s Hold -> Item '%s' is Stream Only (cannot save to flash)\n",
+                                      cur ? cur->name.c_str() : "");
+                        OLEDDisplay::getInstance().showStatusScreen(cur ? cur->name.c_str() : "Media",
+                                                                    "Stream Only",
+                                                                    "Cannot Save Flash");
+                        delay(1800);
+                        displayCurrentCatalogueItem();
                     }
                 }
             }

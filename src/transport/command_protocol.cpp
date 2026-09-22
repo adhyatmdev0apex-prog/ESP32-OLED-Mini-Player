@@ -1,6 +1,7 @@
 #include "command_protocol.h"
 #include "../wifi/wifi_manager.h"
 #include "../content/content_manager.h"
+#include "../content/offline_storage.h"
 #include "../playback/playback_manager.h"
 #include "../audio/bluetooth/bluetooth.h"
 
@@ -74,6 +75,23 @@ void CommandProtocol::handleLine(const char* line) {
             Serial.printf("[WIFI] IP Address: %s\n", WiFiManager::getInstance().getIP().c_str());
         } else {
             Serial.println("Unknown wifi command. Try: 'wifi status', 'wifi connect <ssid> <pass>', 'wifi ip'");
+        }
+        Serial.print("> ");
+        return;
+    }
+
+    // Filesystem / Offline Storage commands
+    if (strncmp(line, "fs", 2) == 0 || strncmp(line, "spiffs", 6) == 0) {
+        if (strcmp(line, "fs status") == 0 || strcmp(line, "fs info") == 0 || strcmp(line, "spiffs status") == 0 || strcmp(line, "fs list") == 0) {
+            OfflineStorage::getInstance().printDiagnostics();
+        } else if (strcmp(line, "fs clear") == 0 || strcmp(line, "spiffs clear") == 0) {
+            OfflineStorage::getInstance().clearOfflineStorage();
+        } else if (strcmp(line, "fs rebuild") == 0) {
+            OfflineStorage::getInstance().rebuildCatalogueFromDisk();
+        } else if (strcmp(line, "fs format") == 0) {
+            OfflineStorage::getInstance().manualFormat();
+        } else {
+            Serial.println("Usage: 'fs status', 'fs clear', 'fs rebuild', 'fs format'");
         }
         Serial.print("> ");
         return;
@@ -223,6 +241,12 @@ void CommandProtocol::handleLine(const char* line) {
         Serial.println("  bt prefer list                 - Show preferred devices");
         Serial.println("  bt prefer add <name>           - Add to preferred list");
         Serial.println("  bt prefer clear                - Clear runtime additions");
+        Serial.println();
+        Serial.println("Filesystem / Storage Commands:");
+        Serial.println("  fs status                      - Show LittleFS info & list all files");
+        Serial.println("  fs clear                       - Clean/delete offline files from flash");
+        Serial.println("  fs rebuild                     - Rebuild offline catalogue from flash");
+        Serial.println("  fs format                      - Explicitly format LittleFS partition");
         Serial.println("========================================");
         Serial.println();
         Serial.print("> ");
