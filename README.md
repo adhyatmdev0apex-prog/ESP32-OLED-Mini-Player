@@ -1,307 +1,435 @@
-# OLED Mini Player — Project Guide
+# OLED Mini Player
 
-This project turns an ESP32/ESP32-CAM into a small media player: it displays
-monochrome animations on a 128×64 I²C OLED and sends matching audio to a
-Bluetooth speaker or headphones. Media can be downloaded from the companion
-web server, saved to flash for offline playback, or loaded from local fallback
-files.
+**A tiny ESP32-powered animation player with a 128×64 OLED, Bluetooth audio, Wi-Fi media delivery, and offline storage.**
 
-> **Credentials:** Do not put real Wi-Fi passwords, tokens, or other secrets in
-> documentation or public commits. Wi-Fi settings are currently defined in
-> `src/config/app_config.h`; replace the existing values with your own local
-> settings and keep secrets out of any repository you share. If credentials
-> were already published, change them at the router/access point.
+OLED Mini Player turns compatible ESP32 boards into a pocket-sized media player. It renders monochrome animations on an I²C OLED and sends matching audio to a Bluetooth speaker or headphones. Media can come from the companion web server, the device's offline library, or bundled fallback files.
+
+> **Project status:** This README documents the existing project structure and behavior. Hardware-specific pinouts, memory limits, and available features depend on the selected PlatformIO environment and the board you actually use.
+
+---
 
 ## Contents
 
+- [Highlights](#highlights)
 - [How it works](#how-it-works)
-- [Hardware](#hardware)
+- [Hardware and wiring](#hardware-and-wiring)
 - [Requirements](#requirements)
-- [Configure Wi-Fi and the media server](#configure-wi-fi-and-the-media-server)
-- [Build and flash the ESP32](#build-and-flash-the-esp32)
+- [Quick start](#quick-start)
+- [Configure the firmware](#configure-the-firmware)
+- [Build and flash](#build-and-flash)
 - [Run the web server](#run-the-web-server)
-- [Add and convert media](#add-and-convert-media)
-- [Use the player](#use-the-player)
-- [Serial commands](#serial-commands)
-- [Offline storage and local fallback](#offline-storage-and-local-fallback)
+- [Convert and publish media](#convert-and-publish-media)
+- [Operate the player](#operate-the-player)
+- [Offline storage](#offline-storage)
+- [Serial command reference](#serial-command-reference)
 - [Troubleshooting](#troubleshooting)
-- [Important project files](#important-project-files)
+- [Project layout](#project-layout)
+- [Security notes](#security-notes)
+
+---
+
+## Highlights
+
+- **128×64 monochrome animation playback** on an I²C OLED.
+- **Bluetooth Classic A2DP audio** for a compatible speaker or headphones.
+- **Wi-Fi catalogue browsing** from a companion Node.js media server.
+- **Media management in a browser** for adding, replacing, editing, and deleting catalogue entries.
+- **Offline downloads** for media marked as compatible and within the configured size limit.
+- **Local fallback assets** bundled into the device filesystem.
+- **Serial diagnostics and controls** for Wi-Fi, media, filesystem, and Bluetooth.
+- **Multiple PlatformIO targets** for standard ESP32, PSRAM-equipped ESP32, and ESP32-CAM boards.
+
+### Memory matters
+
+The standard ESP32-WROOM target has **no PSRAM**. According to the current firmware configuration, remote media playback/downloads that require loading the media pair into PSRAM are rejected when PSRAM is unavailable. The no-PSRAM target is intended for compatible local filesystem media that fits the available storage and RAM. Do not assume that a large online media item will work on a WROOM simply because it fits in flash.
+
+---
 
 ## How it works
 
-1. The firmware starts the OLED, buttons, playback engine, filesystem, and
-   Wi-Fi manager.
-2. It tries the primary Wi-Fi profile, then the fallback profile.
-3. When online, it requests a paginated JSON catalogue from the web server.
-   Selecting an item downloads its video and audio binaries to PSRAM.
-4. The video is decoded and drawn frame-by-frame on the OLED. Audio is sent
-   over Bluetooth Classic A2DP.
-5. If neither Wi-Fi profile connects, the firmware opens its offline library.
-   The web server stores media permanently; offline copies are stored on the
-   ESP32 filesystem.
+1. The firmware initializes the display, buttons, playback engine, filesystem, and Wi-Fi manager.
+2. It tries the primary Wi-Fi profile, followed by the optional fallback profile.
+3. When online, it requests a paginated JSON catalogue from the configured media server.
+4. Selecting an online item downloads its video and audio files into PSRAM on supported targets.
+5. The video is decoded frame-by-frame and drawn on the OLED; audio is sent over Bluetooth Classic A2DP.
+6. Media marked for offline use can be saved to the device filesystem, subject to the configured limit and available space.
+7. If neither Wi-Fi profile connects, the firmware attempts to open its offline library. Configured local fallback files are a separate playback path.
 
-The server API and response format are documented in [`WEB/API.md`](WEB/API.md).
-The web control panel and media-management instructions are in
-[`WEB/README.md`](WEB/README.md).
+Related documentation:
 
-## Hardware
+- [Web server and browser UI guide](WEB/README.md)
+- [Media server API contract](WEB/API.md)
 
-- ESP32 development board or ESP32-CAM. The project has standard ESP32,
-  PSRAM-equipped ESP32, and ESP32-CAM PlatformIO profiles. Remote media
-  streaming requires PSRAM; the no-PSRAM profile can still use local
-  filesystem media where it fits.
+---
+
+## Hardware and wiring
+
+### Supported build targets
+
+| PlatformIO environment | Intended board | Memory notes |
+|---|---|---|
+| `esp32dev` | Standard ESP32 development board, such as ESP32-WROOM-32 | No PSRAM assumed; use media compatible with local storage and available RAM |
+| `esp32dev_psram` | ESP32 development board with PSRAM | PSRAM-dependent media workflows may be available |
+| `esp32cam` | ESP32-CAM | Board pin availability and memory configuration differ from standard ESP32 boards |
+
+Select the environment that matches the **actual hardware**. A build succeeding for one environment does not prove that another board has the same memory or pin capabilities.
+
+### Required components
+
+- ESP32 development board or ESP32-CAM.
 - 128×64 SSD1306-compatible I²C OLED.
 - Two momentary push buttons.
-- A Bluetooth Classic audio receiver (speaker, headphones, etc.).
-- USB-to-serial programming connection as required by the board.
+- Bluetooth Classic A2DP receiver, such as a compatible speaker or headphones.
+- Data-capable USB cable and any required USB-to-serial adapter.
 
-### Connections
+### Current firmware pin assignments
 
-| Part | Current firmware pin | Connection |
-| --- | --- | --- |
+| Component | ESP32 GPIO | Wiring |
+|---|---:|---|
 | OLED SDA | GPIO 13 | OLED SDA |
 | OLED SCL | GPIO 14 | OLED SCL |
-| Scroll button | GPIO 4 | Button between GPIO and GND |
-| Select button | GPIO 5 | Button between GPIO and GND |
-| OLED power/ground | Board-dependent | Use the OLED module's rated supply and common GND |
+| Scroll button | GPIO 4 | Button between GPIO 4 and GND |
+| Select button | GPIO 5 | Button between GPIO 5 and GND |
+| OLED power and ground | Board/module dependent | Follow the OLED module's rated voltage; connect grounds together |
 
-Buttons use the ESP32 internal pull-ups and are **active-low**: pressing
-connects the input to GND. The current pin definitions are shared by all
-build profiles in `src/config/app_config.h`. Check your exact board's pinout
-before wiring: GPIO 4/5 may be used by onboard flash, SD-card interfaces, or
-other peripherals on some ESP32/ESP32-CAM boards, and GPIO 5 may affect boot
-strapping. Change the configuration to pins that are actually available on
-your board if needed. The OLED power pin and voltage are module-dependent.
+The buttons use internal pull-ups and are **active-low**: pressing a button connects its GPIO to GND.
+
+> **Check your board before wiring.** GPIO 4 and GPIO 5 may be unavailable or shared with other functions on some boards. GPIO 5 can also be a boot-strapping pin. ESP32-CAM boards have additional pin constraints. If necessary, update the shared pin definitions in `src/config/app_config.h` and verify the selected board's pinout.
+
+---
 
 ## Requirements
 
 ### Firmware
 
 - PlatformIO Core/CLI or the PlatformIO IDE extension.
-- USB serial drivers and a data-capable USB cable for your board.
-- A 2.4 GHz Wi-Fi network (when using the remote catalogue).
-- Bluetooth Classic A2DP playback device.
+- USB serial drivers and a data-capable USB cable.
+- A 2.4 GHz Wi-Fi network for online catalogue access.
+- A compatible Bluetooth Classic A2DP receiver for audio playback.
 
-The three PlatformIO environments are `esp32dev`, `esp32dev_psram`, and
-`esp32cam`, using the Arduino framework. Dependencies are declared in
-`platformio.ini`: U8g2, ESP32-A2DP, and ArduinoJson.
+The firmware uses the Arduino framework. Dependencies are declared in `platformio.ini`, including U8g2, ESP32-A2DP, and ArduinoJson.
 
 ### Web server
 
 - Node.js 18 or later.
-- No third-party npm packages are declared by the web server.
+- The current server does not declare third-party npm packages.
 
-### Media conversion (optional)
+### Media conversion
 
 - Python 3.
-- OpenCV (`cv2`) and NumPy for video conversion.
-- FFmpeg available on `PATH` for audio conversion.
+- OpenCV and NumPy for video conversion.
+- FFmpeg installed and available on `PATH` for audio conversion.
 
-Install the Python libraries with:
+Install the Python dependencies:
 
 ```powershell
 py -m pip install opencv-python numpy
 ```
 
-Install FFmpeg using a trusted Windows package/source and make sure `ffmpeg`
-is available in a new terminal's `PATH`.
-
-## Configure Wi-Fi and the media server
-
-1. Open `src/config/app_config.h`.
-2. Set `WIFI_SSID` and `WIFI_PASSWORD` to the primary 2.4 GHz network.
-3. Optionally set `WIFI_FALLBACK_SSID` and `WIFI_FALLBACK_PASSWORD` to a
-   second network. The firmware tries this profile after the primary times
-   out. To disable the fallback profile, set its SSID to an empty string.
-4. Set `MEDIA_SERVER_BASE_URL` to the web server address. Do not add a
-   trailing slash. The checked-in default points to the project's deployed
-   service; for a local server, use the computer's reachable LAN address.
-   Example format:
-
-   ```text
-   http://192.168.1.20:3000
-   ```
-
-   The address above is only an example; use the server computer's actual LAN
-   IP. `localhost` / `127.0.0.1` refers to the ESP32 itself and will not reach
-   the server computer.
-5. Keep the ESP32 and server on reachable networks. For a local server, allow
-   inbound connections to the configured port (default 3000) through the
-   computer's firewall.
-
-The checked-in configuration uses placeholder Wi-Fi values; replace them
-before flashing. The Wi-Fi profiles, server URL, timeouts, storage limits,
-display pins, and button pins are defined in `src/config/app_config.h`. Keep
-real credentials local and out of public commits. If credentials were
-previously published, rotate them on the access point.
-
-Bluetooth auto-connect preferences are in
-`src/audio/bluetooth/bluetooth_config.h`. Edit the preferred device-name
-substrings there to match the name advertised by your speaker/headphones.
-
-## Build and flash the ESP32
-
-Run commands from the repository root. With PlatformIO CLI installed:
+Check that FFmpeg is available in a new terminal:
 
 ```powershell
-# Compile for a standard ESP32 development board without PSRAM
-pio run -e esp32dev
-
-# Compile for an ESP32 development board with PSRAM
-pio run -e esp32dev_psram
-
-# Compile for ESP32-CAM (PSRAM flags and CAM target enabled)
-pio run -e esp32cam
-
-# Upload firmware (replace COM5 with the board's serial port)
-pio run -e esp32dev_psram -t upload --upload-port COM5
-
-# Optional: upload the contents of data/ to the configured filesystem
-pio run -e esp32dev_psram -t uploadfs --upload-port COM5
-
-# Open the serial monitor
-pio device monitor --port COM5 --baud 115200
+ffmpeg -version
 ```
 
-Select the environment that matches the exact board and PSRAM configuration;
-change the example upload commands accordingly. The current configuration uses GPIO 4/5 for buttons in all profiles; check
-that these pins are suitable for your physical board. The PSRAM flags and
-board identification differ by environment. Remote media downloads are
-rejected by the firmware when PSRAM is not detected. Put local fallback assets in the
-root `data/` directory before running `uploadfs`. Filesystem upload erases or
-replaces the device filesystem image; back up any files you need first. The
-partition layout is in `partitions.csv`.
+---
 
-After boot, check the serial output at 115200 baud for PSRAM detection, Wi-Fi
-connection, catalogue fetch, and Bluetooth status. If your board requires a
-boot-mode button or different upload settings, follow its board-specific
-programming procedure.
+## Quick start
+
+### 1. Get the project ready
+
+Open a terminal in the repository root—the directory containing `platformio.ini`.
+
+### 2. Configure Wi-Fi
+
+Edit `src/config/app_config.h` and set your local Wi-Fi credentials. Keep real credentials out of public commits.
+
+### 3. Choose the media server
+
+The checked-in `MEDIA_SERVER_BASE_URL` currently points to the hosted instance:
+
+```text
+https://oled-mini-player.onrender.com
+```
+
+Leave it as configured to use that instance, or set it to your own server's reachable LAN address, for example:
+
+```text
+http://192.168.1.20:3000
+```
+
+Do **not** use `localhost` or `127.0.0.1` as the server address in firmware. On the ESP32, those addresses refer to the ESP32 itself—not your computer.
+
+### 4. Identify the serial port
+
+```powershell
+pio device list
+```
+
+Note the port for your board, such as `COM7`.
+
+### 5. Build, upload, and monitor
+
+Choose the matching environment from [Build and flash](#build-and-flash).
+
+---
+
+## Configure the firmware
+
+Open `src/config/app_config.h`. This file contains the primary Wi-Fi profile, optional fallback profile, media server URL, timeouts, storage limits, display pins, button pins, and playback constants.
+
+### Wi-Fi profiles
+
+- Set `WIFI_SSID` and `WIFI_PASSWORD` for the primary 2.4 GHz network.
+- Optionally set `WIFI_FALLBACK_SSID` and `WIFI_FALLBACK_PASSWORD` for a second network.
+- To disable the fallback profile, set its SSID to an empty string.
+
+### Media server URL
+
+- **Hosted server:** use the existing configured URL if you want to use the deployed service.
+- **Local server:** use the computer's LAN IP and port, without a trailing slash, for example `http://192.168.1.20:3000`.
+- Make sure the ESP32 and server computer can communicate, and allow the server port through the computer's firewall.
+
+### Bluetooth preferences
+
+Preferred device-name substrings are configured in:
+
+```text
+src/audio/bluetooth/bluetooth_config.h
+```
+
+Adjust the preferred names to match the name advertised by your Bluetooth receiver.
+
+### Keep credentials private
+
+Do not commit Wi-Fi passwords, API tokens, or other secrets. If credentials have already been published, change them.
+
+---
+
+## Build and flash
+
+Run these commands from the repository root. Replace `COMx` with your actual serial port.
+
+### Standard ESP32 development board — no PSRAM
+
+```powershell
+$port = "COMx"
+
+pio run -e esp32dev
+pio run -e esp32dev -t upload --upload-port $port
+pio run -e esp32dev -t uploadfs --upload-port $port
+pio device monitor --port $port --baud 115200
+```
+
+### ESP32 development board with PSRAM
+
+```powershell
+$port = "COMx"
+
+pio run -e esp32dev_psram
+pio run -e esp32dev_psram -t upload --upload-port $port
+pio run -e esp32dev_psram -t uploadfs --upload-port $port
+pio device monitor --port $port --baud 115200
+```
+
+### ESP32-CAM
+
+```powershell
+$port = "COMx"
+
+pio run -e esp32cam
+pio run -e esp32cam -t upload --upload-port $port
+pio run -e esp32cam -t uploadfs --upload-port $port
+pio device monitor --port $port --baud 115200
+```
+
+### Important upload notes
+
+- The `uploadfs` command writes a filesystem image and can erase or replace files already stored on the device. Back up any files you need before running it.
+- Local fallback assets must be placed in the repository-root `data/` directory before uploading the filesystem image.
+- The partition layout is defined in `partitions.csv`. Do not change it casually; confirm flash capacity and filesystem requirements first.
+- If your board requires a boot-mode button or special upload wiring, follow its board-specific procedure.
+- At boot, inspect serial output at **115200 baud** for memory/PSRAM detection, Wi-Fi connection, catalogue retrieval, and Bluetooth status.
+
+---
 
 ## Run the web server
 
-From the repository root:
+Running your own server is optional if the hosted instance is available and configured in the firmware.
+
+To run a local instance, open a terminal at the repository root and execute:
 
 ```powershell
 cd WEB
 npm start
 ```
 
-Open `http://localhost:3000` on the server computer. The server binds to
-`0.0.0.0:3000` by default so devices on the LAN can connect. Set `PORT` or
-`HOST` environment variables to override these values. CORS settings and
-pagination defaults are in `WEB/config.json`.
+Then open the browser UI on the server computer:
 
-To test the API locally:
+```text
+http://localhost:3000
+```
+
+The server binds to `0.0.0.0:3000` by default, allowing other devices on the LAN to connect. `PORT` and `HOST` environment variables can override the defaults. CORS and pagination defaults are configured in `WEB/config.json`.
+
+### Test the catalogue API
+
+From the server computer:
 
 ```powershell
 curl.exe "http://localhost:3000/api/videos?page=0&limit=10"
 ```
 
-To use the API from the ESP32, use the server computer's LAN IP in
-`MEDIA_SERVER_BASE_URL`. The server's catalogue items contain relative
-`video_url` and `audio_url` paths; firmware combines those with the configured
-base URL.
+For firmware, set `MEDIA_SERVER_BASE_URL` to the server computer's LAN IP—not `localhost`.
 
-The browser UI's **Add Media** flow accepts converted video/audio files,
-checks the STIK video header, stores media under `WEB/media/<id>/`, and updates
-`WEB/data/catalogue.json`. Keep server data backed up; replacing or deleting a
-catalogue entry affects the corresponding server media.
+### Where server media is stored
 
-The management endpoints can add, replace, edit, and delete media. The server
-does not provide user authentication, and its default CORS configuration is
-permissive. Keep it on a trusted network; do not expose it directly to the
-public internet without adding appropriate access controls.
+The browser UI's **Add Media** workflow accepts converted video and audio files, checks the STIK video header, stores media under `WEB/media/<id>/`, and updates `WEB/data/catalogue.json`.
 
-Run server tests from `WEB/`:
+The server's management endpoints can add, replace, edit, and delete media. Back up the server's media and catalogue data before making destructive changes.
+
+> **Network safety:** The current server does not provide user authentication, and its default CORS configuration is permissive. Keep it on a trusted network. Do not expose it directly to the public internet without adding appropriate access controls.
+
+### Run server tests
 
 ```powershell
+cd WEB
 npm test
 ```
 
-## Add and convert media
+---
 
-The player expects a matched pair of binary files:
+## Convert and publish media
 
-- Video: the project's **STIK** animation format, 128×64 pixels.
-- Audio: raw unsigned 8-bit mono PCM at 5000 Hz.
+The player expects a matched video/audio pair.
 
-The scripts under `Utils/` convert a source video into the two formats. From
-the repository root, for example:
+| Asset | Expected format |
+|---|---|
+| Video | Project-specific **STIK** animation format, 128×64 |
+| Audio | Raw unsigned 8-bit mono PCM at 5000 Hz |
+
+Use the conversion scripts in `Utils/`. Example commands from the repository root:
 
 ```powershell
 py Utils\convert.py "Utils\source.mp4" -o "data\example.bin"
 py Utils\Audio_convert.py "Utils\source.mp4" -o "data\example.pcm"
 ```
 
-Replace `Utils\source.mp4` with the path to your source. The video converter
-uses Python OpenCV and NumPy; the audio converter invokes FFmpeg. The generated
-STIK header includes the resolution, frame rate, and frame count. Use the
-scripts' `--help` options for available conversion arguments.
+Replace `Utils\source.mp4` with the actual path to your source video. The video converter uses OpenCV and NumPy; the audio converter invokes FFmpeg. The generated STIK header contains animation properties such as resolution, frame rate, and frame count.
 
-### Publish media to the web catalogue
+Use each script's help option to see its supported arguments:
 
-1. Start the server and open `http://localhost:3000`.
+```powershell
+py Utils\convert.py --help
+py Utils\Audio_convert.py --help
+```
+
+### Publish the converted pair
+
+1. Start the web server and open `http://localhost:3000`.
 2. Choose **Add Media**.
-3. Enter a unique ID containing only letters, numbers, `_`, or `-`, plus a
-   display name and optional metadata.
-4. Select the generated STIK `.bin` video and `.pcm` audio files and submit.
-5. Confirm the entry appears in the catalogue. The server stores the files as
-   `WEB/media/<id>/video.bin` and `audio.bin`.
-6. On the device, refresh/fetch the catalogue and play the new entry.
+3. Enter a unique ID using letters, numbers, underscores, or hyphens, plus a display name and optional metadata.
+4. Select the generated STIK `.bin` video and `.pcm` audio.
+5. Submit and confirm the item appears in the catalogue.
+6. The server stores the pair as:
+   - `WEB/media/<id>/video.bin`
+   - `WEB/media/<id>/audio.bin`
+7. Refresh the catalogue on the device and select the item.
 
-See [`WEB/API.md`](WEB/API.md) for exact API paths and error responses.
+See [the API contract](WEB/API.md) for the exact routes, response structure, and error behavior.
 
-### Use files as local fallback media
+### Local fallback assets
 
-The firmware's configured fallback names are:
+The configured fallback filenames are:
 
 ```text
 data/stickman.vs.geometry_dash.bin
 data/stickman.vs.geometry_dash.pcm
 ```
 
-Place compatible files at those paths, then upload the filesystem image using
-the `uploadfs` command above. Do not confuse this with the web server's
-`WEB/data/` catalogue directory: the root `data/` directory is used for
-firmware filesystem assets, while `WEB/data/` belongs to the Node server.
+Place compatible files at those exact paths before running `uploadfs`.
 
-## Use the player
+**Do not confuse these directories:**
 
-- **Scroll button:** short press advances to the next item; holding it starts
-  repeat scrolling. The GPIO depends on the selected board profile.
-- **Select button:** short press loads the selected item and starts playback.
-  The GPIO depends on the selected board profile.
-- **Select held for 1 second:** during playback, stops and returns to the
-  catalogue.
-- **Select held for 2 seconds:** in the online catalogue, saves the selected
-  item marked as offline-compatible for offline use. The configured maximum
-  offline package size is 2,050,000 bytes; storage space and the media pair's
-  actual size also constrain saving.
-- **Bluetooth:** the firmware starts an A2DP source and tries names listed in
-  `src/audio/bluetooth/bluetooth_config.h`. Change those preferred-name
-  substrings to match your receiver, or use the serial Bluetooth commands.
+- Root `data/` — filesystem assets for the firmware.
+- `WEB/data/` — server catalogue data.
 
-The display shows catalogue information and download/playback status. If
-Wi-Fi profiles fail, the device switches to the offline library if stored
-items are available.
+---
 
-## Serial commands
+## Operate the player
 
-Open a 115200-baud serial monitor and type `help` for the full command list.
-Useful commands include:
+The physical controls currently behave as follows:
+
+| Action | Behavior |
+|---|---|
+| Scroll button — short press | Advance to the next catalogue item |
+| Scroll button — hold | Repeat scrolling |
+| Select button — short press | Load the selected item and start playback |
+| Select button — hold for 1 second during playback | Stop and return to the catalogue |
+| Select button — hold for 2 seconds in the online catalogue | Save the selected offline-compatible item for offline use |
+| Bluetooth | Firmware starts an A2DP source and attempts preferred receiver names |
+
+The configured maximum offline package size is currently **2,050,000 bytes**. The actual media pair must also fit within available filesystem space and all firmware limits.
+
+The display reports catalogue and download/playback status. If both configured Wi-Fi profiles fail at startup, the firmware attempts to open the offline library if saved items are available.
+
+---
+
+## Offline storage
+
+The player has distinct paths for bundled fallback media and saved catalogue items.
+
+### Bundled local fallback
+
+1. Put compatible assets in the repository-root `data/` directory.
+2. Upload them with the `uploadfs` command.
+3. The firmware attempts to load the configured fallback assets at startup.
+
+Uploading a filesystem image can replace existing filesystem contents.
+
+### Saved offline catalogue items
+
+1. Browse the online catalogue while connected.
+2. Select an item marked as offline-compatible.
+3. Hold the Select button for **2 seconds** to save it.
+4. The firmware downloads the media pair to the device filesystem, subject to its offline size limit and available space.
+5. When Wi-Fi is unavailable at startup, the firmware attempts to use its offline library.
+
+### Storage and memory are different
+
+- **Server storage:** permanent media library on the web server.
+- **Device filesystem:** saved offline items and local filesystem assets.
+- **PSRAM:** runtime media buffers on supported boards.
+- **Internal RAM:** firmware, stacks, network/TLS state, decoder buffers, and other live data.
+
+The current firmware's normal online playback path loads the selected media pair into PSRAM. A standard WROOM board without PSRAM therefore has tighter constraints; local filesystem storage alone does not automatically make a PSRAM-dependent playback path compatible with that board.
+
+Check `partitions.csv`, free filesystem space, and the configured offline limit before adding large files.
+
+---
+
+## Serial command reference
+
+Open a serial monitor at **115200 baud** and type:
+
+```text
+help
+```
+
+The firmware prints the complete command list. Common commands include:
 
 | Command | Purpose |
-| --- | --- |
+|---|---|
 | `wifi status` | Show Wi-Fi connection state, SSID, IP, and RSSI |
-| `wifi connect <ssid> [password]` | Try a Wi-Fi network for this runtime session |
+| `wifi connect <ssid> [password]` | Try a network for the current runtime session |
 | `wifi ip` | Show the current device IP |
-| `server <base_url>` | Change the server URL at runtime |
-| `content status` | Show the server URL and cached catalogue details |
+| `server <base_url>` | Change the media server URL at runtime |
+| `content status` | Show server URL and cached catalogue details |
 | `content catalogue` | Refresh and print page 0 |
 | `content fetch <page>` | Fetch a zero-based catalogue page |
 | `content download <index_or_id>` | Download and play an item |
 | `playurl <video_url> <audio_url>` | Download and play a custom URL pair |
-| `play`, `pause`, `resume`, `stop` | Control currently loaded playback |
+| `play`, `pause`, `resume`, `stop` | Control current playback |
 | `bt status`, `bt scan`, `bt list` | Inspect or scan Bluetooth devices |
 | `bt connect N` | Connect to a discovered device by index |
 | `bt prefer list` | Show preferred Bluetooth device names |
@@ -310,61 +438,65 @@ Useful commands include:
 | `fs clear` | Delete offline media files |
 | `fs format` | Explicitly format the filesystem partition |
 
-Use `fs clear` and especially `fs format` with care: these operations remove
-stored data. Serial commands are implemented in
-`src/transport/command_protocol.cpp`.
+> **Destructive commands:** `fs clear` deletes offline media. `fs format` erases filesystem contents. Use them only when you intentionally want to remove stored files.
 
-## Offline storage and local fallback
+Serial commands are implemented in `src/transport/command_protocol.cpp`.
 
-- **Local fallback assets** are bundled from the root `data/` directory and
-  copied to the ESP32 filesystem when `uploadfs` is run.
-- **Saved offline catalogue items** are downloaded from the server to the
-  device's filesystem by holding Select for two seconds while browsing online.
-- **Streaming playback** downloads the selected pair into PSRAM. Firmware
-  enforces per-file and combined memory limits defined in
-  `src/config/app_config.h`.
-- If no Wi-Fi network is available at startup, the firmware uses its offline
-  library. The firmware also attempts to load the configured local fallback
-  asset at startup; fallback playback and saved offline catalogue entries are
-  separate paths.
-
-The current partition table allocates the application and filesystem regions
-in `partitions.csv`. Check free filesystem space and the configured offline
-package limit before adding large media files.
+---
 
 ## Troubleshooting
 
-| Symptom | Checks |
-| --- | --- |
-| Device cannot connect to Wi-Fi | Use a 2.4 GHz network; verify SSID/password locally; check signal and serial logs; confirm fallback settings if configured. |
-| Catalogue fetch fails | Ensure the server is running and reachable from the device; use the computer's LAN IP, not `localhost`; check port/firewall and `MEDIA_SERVER_BASE_URL`. |
-| Catalogue is empty | Add a valid media pair through the web UI and refresh with `content catalogue`. |
-| Media download fails | Confirm both files exist on the server, URLs work from the LAN, and sizes fit firmware limits/available PSRAM. |
-| Video is rejected | Reconvert with `Utils/convert.py`; the firmware expects a valid STIK header with 128×64 dimensions and nonzero FPS/frame count. |
-| No Bluetooth audio | Pair/enable the receiver; check its advertised name against the preferred list; use `bt scan`, `bt list`, and `bt status`. |
-| No offline item appears | Save a compatible item while online; inspect with `fs status`; rebuild the catalogue with `fs rebuild` if needed. |
-| Upload or monitor fails | Check the serial port, USB cable/driver, board selection, and board-specific bootloader procedure. |
+| Symptom | What to check |
+|---|---|
+| Wi-Fi will not connect | Confirm a 2.4 GHz network, SSID/password, signal strength, and fallback settings. Check serial logs. |
+| Catalogue fetch fails | Verify the server is reachable from the ESP32. For a local server, use the computer's LAN IP, check the port/firewall, and confirm `MEDIA_SERVER_BASE_URL`. |
+| Catalogue is empty | Add a valid media pair through the web UI, then run `content catalogue`. |
+| Media download fails | Confirm both files exist, their URLs are reachable, and file sizes fit firmware and memory limits. |
+| Video is rejected | Reconvert with `Utils/convert.py`; the firmware expects a valid STIK header with 128×64 dimensions and nonzero frame rate/frame count. |
+| Bluetooth audio is missing | Enable the receiver, compare its advertised name with the preferred-name list, and run `bt scan`, `bt list`, or `bt status`. |
+| Offline items are missing | Save an offline-compatible item while online, inspect `fs status`, and try `fs rebuild` if the files exist but the catalogue is missing. |
+| Upload or serial monitor fails | Check the COM port, cable, USB driver, board selection, and bootloader procedure. |
+| Filesystem image upload would overwrite saved files | Back up the media first; `uploadfs` can replace the filesystem contents. |
+| Standard WROOM cannot play a large remote item | The current remote playback path requires PSRAM. Use a compatible local item or adapt the playback path to stream from the filesystem before expecting PSRAM-dependent media to work. |
 
-**HTTPS note:** the current firmware's HTTPS downloader configures its secure
-client with certificate verification disabled. Do not treat this as
-authenticated TLS for sensitive/private media; prefer a trusted network or
-update TLS certificate validation before relying on HTTPS security.
+### HTTPS implementation note
 
-## Important project files
+The current firmware's HTTPS downloader disables certificate verification on its secure client. This means the connection should **not** be treated as fully authenticated TLS for sensitive or private media. Prefer a trusted network, or implement proper certificate validation before relying on HTTPS security.
 
-| Path | Role |
-| --- | --- |
-| `platformio.ini` | Board environments, build flags, dependencies, and filesystem configuration |
+---
+
+## Project layout
+
+| Path | Responsibility |
+|---|---|
+| `platformio.ini` | PlatformIO environments, build flags, dependencies, filesystem settings |
 | `partitions.csv` | Flash partition layout |
-| `src/main.cpp` | Boot, application state machine, and button-driven playback flow |
-| `src/config/app_config.h` | Wi-Fi/server settings, limits, pins, and playback constants |
-| `src/content/` | Catalogue, downloads, media items, and offline storage |
-| `src/playback/` | STIK parsing, OLED animation playback, and audio synchronization |
+| `src/main.cpp` | Boot flow, application state machine, button-driven playback flow |
+| `src/config/app_config.h` | Wi-Fi/server settings, limits, pins, playback constants |
+| `src/content/` | Catalogue access, downloads, media items, offline storage |
+| `src/playback/` | STIK parsing, OLED animation playback, audio synchronization |
 | `src/display/` | OLED rendering |
 | `src/input/` | Physical button handling |
 | `src/wifi/` | Primary/fallback Wi-Fi state machine |
-| `src/audio/bluetooth/` | Bluetooth A2DP source and preferred device configuration |
-| `src/transport/command_protocol.cpp` | Serial shell commands |
-| `Utils/` | Source-video and audio conversion scripts |
-| `data/` | Root firmware filesystem assets for local fallback |
+| `src/audio/bluetooth/` | Bluetooth A2DP source and preferred-device configuration |
+| `src/transport/command_protocol.cpp` | Serial command shell |
+| `Utils/` | Video and audio conversion scripts |
+| `data/` | Firmware filesystem assets and local fallback files |
 | `WEB/` | Node.js media server and browser control panel |
+
+---
+
+## Security and maintenance checklist
+
+- [ ] Keep Wi-Fi passwords and tokens out of public commits.
+- [ ] Rotate credentials if they were ever published.
+- [ ] Back up `WEB/data/catalogue.json` and `WEB/media/`.
+- [ ] Back up offline files before uploading a new filesystem image.
+- [ ] Keep the unauthenticated web server on a trusted network.
+- [ ] Do not rely on the current HTTPS client for authenticated TLS until certificate verification is enabled.
+- [ ] Choose the PlatformIO environment that matches the board's actual PSRAM and pin configuration.
+- [ ] Check filesystem capacity and media limits before downloading large files.
+
+---
+
+**Built for tiny screens, small boards, and big animation energy.** ⚡
