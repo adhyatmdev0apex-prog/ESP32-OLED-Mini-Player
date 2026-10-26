@@ -146,13 +146,16 @@ Edit `src/config/app_config.h` and set your local Wi-Fi credentials. Keep real c
 
 ### 3. Choose the media server
 
-The checked-in `MEDIA_SERVER_BASE_URL` currently points to the hosted instance:
+Anyone can use the original shared instance already specified in the firmware;
+you do not need to run or deploy your own server to use it:
 
 ```text
-https://oled-mini-player.onrender.com
+https://oled-mini-player.onrender.com/
 ```
 
-Leave it as configured to use that instance, or set it to your own server's reachable LAN address, for example:
+The code's default is the same address without the final slash. Leave
+`MEDIA_SERVER_BASE_URL` unchanged to use the hosted instance, or set it to your
+own server's reachable LAN address, for example:
 
 ```text
 http://192.168.1.20:3000
@@ -186,7 +189,9 @@ Open `src/config/app_config.h`. This file contains the primary Wi-Fi profile, op
 
 ### Media server URL
 
-- **Hosted server:** use the existing configured URL if you want to use the deployed service.
+- **Original shared hosted instance:** anyone can use
+  `https://oled-mini-player.onrender.com/`; no local server setup is required.
+  This is the service configured by default in `src/config/app_config.h`.
 - **Local server:** use the computer's LAN IP and port, without a trailing slash, for example `http://192.168.1.20:3000`.
 - Make sure the ESP32 and server computer can communicate, and allow the server port through the computer's firewall.
 
