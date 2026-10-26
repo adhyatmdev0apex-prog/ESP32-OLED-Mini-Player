@@ -10,8 +10,10 @@
 struct DownloadedMedia {
     uint8_t* videoBuffer = nullptr;
     size_t videoSize = 0;
+    String videoFilePath = "";
     uint8_t* audioBuffer = nullptr;
     size_t audioSize = 0;
+    String audioFilePath = "";
     MediaItem item;
 
     void freeBuffers() {
@@ -20,12 +22,14 @@ struct DownloadedMedia {
             videoBuffer = nullptr;
         }
         videoSize = 0;
+        videoFilePath = "";
 
         if (audioBuffer != nullptr) {
             free(audioBuffer);
             audioBuffer = nullptr;
         }
         audioSize = 0;
+        audioFilePath = "";
     }
 };
 
@@ -34,9 +38,9 @@ public:
     MediaDownloader() = default;
     ~MediaDownloader() = default;
 
-    // Downloads videoUrl and audioUrl directly into newly allocated PSRAM buffers.
-    // Performs Content-Length checks, PSRAM safety checks, streaming downloads,
-    // and STIK/PCM binary validations before returning true.
+    // Downloads videoUrl into SPIFFS and audioUrl into PSRAM (if available).
+    // Performs Content-Length checks, streaming downloads,
+    // and STIK binary validations before returning true.
     bool downloadMedia(const MediaItem& item, DownloadedMedia& outResult);
 
     // Downloads video and audio directly to LittleFS flash without consuming PSRAM.
@@ -45,7 +49,7 @@ public:
 
 private:
     bool downloadToPSRAM(const String& url, uint8_t*& outBuffer, size_t& outSize, size_t maxSize, const char* label);
-    bool downloadToFile(const String& url, const String& filePath, size_t maxSize, const char* label, size_t& outSize);
+    bool downloadToFile(const String& url, const String& filePath, size_t maxSize, const char* label, size_t& outSize, bool allowPartial = false);
     bool validateSTIK(const uint8_t* buffer, size_t size);
     bool validatePCM(const uint8_t* buffer, size_t size);
     bool validateSTIKFile(const String& filePath);

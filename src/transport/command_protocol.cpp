@@ -27,8 +27,10 @@ void CommandProtocol::pollSerial() {
 
         if (c == '\n') {
             m_buf[m_len] = '\0';
-            handleLine(m_buf);
+            char lineCopy[sizeof(m_buf)];
+            memcpy(lineCopy, m_buf, m_len + 1);
             m_len = 0;
+            handleLine(lineCopy);
             return;
         }
 

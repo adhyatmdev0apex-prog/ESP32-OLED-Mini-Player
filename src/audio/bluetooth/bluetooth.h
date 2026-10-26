@@ -129,9 +129,12 @@ void bluetoothAudioPreferClear();
 // AUDIO PLAYBACK
 // ============================================================
 
-// Provide a pre-loaded PCM buffer in PSRAM to play.
+// Provide a pre-loaded PCM buffer in PSRAM (or a power-of-2 ring buffer in SRAM) to play.
 // Data must be 8-bit unsigned mono at the specified sample rate.
 void bluetoothAudioSetPCMBuffer(const uint8_t* pcm_data, size_t size_bytes, uint32_t sample_rate);
+
+// Optional power-of-2 ring buffer index mask (e.g. 8191 for an 8KB ring buffer, or 0xFFFFFFFFUL for linear buffer).
+void bluetoothAudioSetPCMRingMask(uint32_t ring_mask);
 
 // Set playback position in milliseconds.
 // Called continuously by the video player to keep audio perfectly synced!

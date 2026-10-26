@@ -6,6 +6,44 @@
 #include <WiFiClientSecure.h>
 #include <LittleFS.h>
 #include "offline_storage.h"
+#include <esp_bt.h>
+#include <esp_bt_main.h>
+
+static void suspendBluetoothForDownload() {
+    Serial.println("[DOWNLOAD] Pausing Bluetooth & releasing controller RAM for HTTPS TLS...");
+    bluetoothAudioEnd();
+    delay(50);
+    if (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED) {
+        esp_bluedroid_disable();
+    }
+    if (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_INITIALIZED) {
+        esp_bluedroid_deinit();
+    }
+    btStop();
+    delay(50);
+    Serial.printf("[MEM] Bluetooth released: Free heap: %u, Largest block: %u\n",
+                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+}
+
+static void restoreBluetoothAfterDownload(bool waitForReconnect = false) {
+    Serial.println("[DOWNLOAD] Restoring Bluetooth stack for playback...");
+    btStart();
+    bluetoothAudioBegin();
+    if (waitForReconnect) {
+        Serial.println("[DOWNLOAD] Waiting for Bluetooth speaker to reconnect before starting playback...");
+        OLEDDisplay::getInstance().showStatusScreen("Bluetooth Audio", "Reconnecting...", "Please wait");
+        uint32_t waitStart = millis();
+        while (!bluetoothAudioStreaming() && (millis() - waitStart < 15000)) {
+            bluetoothAudioUpdate();
+            delay(20);
+        }
+        if (bluetoothAudioStreaming()) {
+            Serial.println("[DOWNLOAD] Bluetooth speaker reconnected & streaming!");
+        } else {
+            Serial.println("[DOWNLOAD] Bluetooth reconnect wait finished; playback will auto-sync on connect.");
+        }
+    }
+}
 
 bool MediaDownloader::downloadToPSRAM(const String& url, uint8_t*& outBuffer, size_t& outSize, size_t maxSize, const char* label) {
     if (!WiFiManager::getInstance().isConnected()) {
@@ -133,6 +171,7 @@ bool MediaDownloader::downloadToPSRAM(const String& url, uint8_t*& outBuffer, si
     }
 
     CLEANUP_HTTP();
+#undef CLEANUP_HTTP
 
     if (bytesReadTotal != requiredSize) {
         Serial.printf("[DOWNLOAD] %s Error: Short read! Expected %u bytes, received %u bytes.\n",
@@ -144,12 +183,6 @@ bool MediaDownloader::downloadToPSRAM(const String& url, uint8_t*& outBuffer, si
 
     outSize = requiredSize;
     Serial.printf("[DOWNLOAD] Received: %u / %u\n", (unsigned)bytesReadTotal, (unsigned)requiredSize);
-    
-    // Explicitly clean up HTTP resources
-    CLEANUP_HTTP();
-    secureClient.reset();
-    client.reset();
-
     Serial.printf("[DOWNLOAD] Free PSRAM after: %u\n", ESP.getFreePsram());
     Serial.printf("[DOWNLOAD] COMPLETE\n");
     return true;
@@ -205,85 +238,31 @@ bool MediaDownloader::validatePCM(const uint8_t* buffer, size_t size) {
     return true;
 }
 
-bool MediaDownloader::downloadMedia(const MediaItem& item, DownloadedMedia& outResult) {
-    if (!item.isValid()) {
-        Serial.println("[DOWNLOAD] Error: Invalid MediaItem details.");
+bool MediaDownloader::validateSTIKFile(const String& filePath) {
+    if (!LittleFS.exists(filePath)) return false;
+    File f = LittleFS.open(filePath, FILE_READ);
+    if (!f || f.size() < 16) {
+        if (f) f.close();
         return false;
     }
 
-    bool wasBtActive = (bluetoothAudioGetState() != BluetoothState::OFF);
-    if (wasBtActive) {
-        Serial.println("[DOWNLOAD] Pausing Bluetooth stack to maximize heap for HTTPS TLS...");
-        bluetoothAudioEnd();
-        delay(60);
-    }
+    uint8_t header[16];
+    size_t readCount = f.read(header, 16);
+    f.close();
 
-    struct BtRestorer {
-        bool active;
-        ~BtRestorer() {
-            if (active) {
-                Serial.println("[DOWNLOAD] Restoring Bluetooth stack for playback...");
-                bluetoothAudioBegin();
-            }
-        }
-    } btRestorer{wasBtActive};
-
-    Serial.println();
-    Serial.println("========================================");
-    Serial.printf("[CONTENT] Selected Item:\n  ID:   %s\n  Name: %s\n", item.id.c_str(), item.name.c_str());
-    Serial.println("========================================");
-
-    DownloadedMedia tempMedia;
-    tempMedia.item = item;
-
-    // 1. Download video directly into PSRAM in a single clean stream
-    if (!downloadToPSRAM(item.videoUrl, tempMedia.videoBuffer, tempMedia.videoSize, MAX_VIDEO_SIZE, "Video")) {
-        Serial.println("[DOWNLOAD] Video download failed.");
-        tempMedia.freeBuffers();
-        return false;
-    }
-
-    // 2. Validate STIK header immediately
-    if (!validateSTIK(tempMedia.videoBuffer, tempMedia.videoSize)) {
-        Serial.println("[CONTENT] STIK validation FAILED");
-        tempMedia.freeBuffers();
-        return false;
-    }
-
-    // 3. Download audio directly into PSRAM in a single clean stream
-    if (!downloadToPSRAM(item.audioUrl, tempMedia.audioBuffer, tempMedia.audioSize, MAX_AUDIO_SIZE, "Audio")) {
-        Serial.println("[DOWNLOAD] Audio download failed.");
-        tempMedia.freeBuffers();
-        return false;
-    }
-
-    // 4. Validate PCM audio immediately
-    if (!validatePCM(tempMedia.audioBuffer, tempMedia.audioSize)) {
-        Serial.println("[CONTENT] PCM validation FAILED");
-        tempMedia.freeBuffers();
-        return false;
-    }
-
-    // 5. Verify combined media size limit
-    size_t combinedSize = tempMedia.videoSize + tempMedia.audioSize;
-    Serial.printf("[DOWNLOAD] Combined media size: %u bytes\n", (unsigned)combinedSize);
-
-    if (combinedSize > MAX_COMBINED_MEDIA_SIZE) {
-        Serial.printf("[DOWNLOAD] REJECTED: Combined size %u exceeds MAX_COMBINED_MEDIA_SIZE %u\n",
-                      (unsigned)combinedSize, (unsigned)MAX_COMBINED_MEDIA_SIZE);
-        tempMedia.freeBuffers();
-        return false;
-    }
-
-    // Transfer ownership on clean success
-    outResult = tempMedia;
-    Serial.println("[DOWNLOAD] Media downloaded and validated successfully!");
-    return true;
+    if (readCount < 16) return false;
+    return validateSTIK(header, readCount);
 }
 
-bool MediaDownloader::downloadToFile(const String& url, const String& filePath, size_t maxSize, const char* label, size_t& outSize) {
+bool MediaDownloader::downloadToFile(const String& url, const String& filePath, size_t maxSize, const char* label, size_t& outSize, bool allowPartial) {
+    outSize = 0;
     if (!WiFiManager::getInstance().isConnected()) {
         Serial.printf("[DOWNLOAD-FLASH] %s Error: Wi-Fi not connected.\n", label);
+        return false;
+    }
+
+    if (!OfflineStorage::getInstance().isReady()) {
+        Serial.printf("[DOWNLOAD-FLASH] %s Error: Filesystem is not mounted! (Run 'fs format' in serial monitor)\n", label);
         return false;
     }
 
@@ -342,9 +321,38 @@ bool MediaDownloader::downloadToFile(const String& url, const String& filePath, 
         return false;
     }
 
-    size_t freeFlash = LittleFS.totalBytes() - LittleFS.usedBytes();
+    size_t totalFlash = LittleFS.totalBytes();
+    size_t usedFlash  = LittleFS.usedBytes();
+    size_t freeFlash  = (totalFlash > usedFlash) ? (totalFlash - usedFlash) : 0;
+
+    // If downloading a new stream video and temporary stream cache is occupying needed flash space,
+    // reclaim temporary stream cache ONLY if the new file actually fits in the partition.
+    if (filePath == "/stream_video.bin.tmp" && freeFlash < requiredSize + 4096) {
+        if (LittleFS.exists("/stream_audio.bin")) {
+            LittleFS.remove("/stream_audio.bin");
+            usedFlash = LittleFS.usedBytes();
+            freeFlash = (totalFlash > usedFlash) ? (totalFlash - usedFlash) : 0;
+        }
+        if (freeFlash < requiredSize + 4096 && totalFlash >= requiredSize + 20480 && LittleFS.exists("/stream_video.bin")) {
+            LittleFS.remove("/stream_video.bin");
+            usedFlash = LittleFS.usedBytes();
+            freeFlash = (totalFlash > usedFlash) ? (totalFlash - usedFlash) : 0;
+        }
+    }
+
+    if (allowPartial && freeFlash > 16384 && requiredSize + 8192 > freeFlash) {
+        size_t cappedSize = freeFlash - 8192;
+        Serial.printf("[DOWNLOAD-FLASH] %s: Capping stream size from %u to %u bytes to fit remaining SPIFFS space.\n",
+                      label, (unsigned)requiredSize, (unsigned)cappedSize);
+        requiredSize = cappedSize;
+    }
+
+    Serial.printf("[DOWNLOAD-FLASH] Heap: %u (largest %u), SPIFFS: Total %u, Used %u, Free %u bytes\n",
+                  ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
+                  (unsigned)totalFlash, (unsigned)usedFlash, (unsigned)freeFlash);
+
     if (freeFlash < requiredSize + 4096) {
-        Serial.printf("[DOWNLOAD-FLASH] REJECTED: Insufficient flash space (Need: %u, Free: %u bytes)\n",
+        Serial.printf("[DOWNLOAD-FLASH] REJECTED: Insufficient flash space (Required: %u, Free: %u bytes)\n",
                       (unsigned)(requiredSize + 4096), (unsigned)freeFlash);
         CLEANUP_FLASH_HTTP();
         return false;
@@ -361,6 +369,16 @@ bool MediaDownloader::downloadToFile(const String& url, const String& filePath, 
         return false;
     }
 
+    const size_t chunkSize = 2048;
+    std::unique_ptr<uint8_t[]> chunkBuf(new (std::nothrow) uint8_t[chunkSize]);
+    if (!chunkBuf) {
+        Serial.printf("[DOWNLOAD-FLASH] %s Error: Failed to allocate 2KB chunk buffer.\n", label);
+        f.close();
+        LittleFS.remove(filePath);
+        CLEANUP_FLASH_HTTP();
+        return false;
+    }
+
     Serial.printf("[DOWNLOAD-FLASH] Streaming %s into LittleFS '%s'...\n", label, filePath.c_str());
     OLEDDisplay::getInstance().showDownloadProgress(label, 0, requiredSize);
 
@@ -368,16 +386,21 @@ bool MediaDownloader::downloadToFile(const String& url, const String& filePath, 
     size_t bytesReadTotal = 0;
     uint32_t startMs = millis();
     uint32_t lastOledMs = 0;
-    const size_t chunkSize = 2048;
-    uint8_t chunkBuf[2048];
+    bool writeFailure = false;
 
     while (http->connected() && (bytesReadTotal < requiredSize)) {
         size_t availableBytes = stream->available();
         if (availableBytes > 0) {
             size_t toRead = std::min(availableBytes, std::min(chunkSize, requiredSize - bytesReadTotal));
-            int readCount = stream->read(chunkBuf, toRead);
+            int readCount = stream->read(chunkBuf.get(), toRead);
             if (readCount > 0) {
-                f.write(chunkBuf, readCount);
+                size_t written = f.write(chunkBuf.get(), readCount);
+                if (written != (size_t)readCount) {
+                    Serial.printf("[DOWNLOAD-FLASH] %s Error: Filesystem write error (wrote %u / %d bytes)!\n",
+                                  label, (unsigned)written, readCount);
+                    writeFailure = true;
+                    break;
+                }
                 bytesReadTotal += readCount;
                 startMs = millis();
 
@@ -403,9 +426,10 @@ bool MediaDownloader::downloadToFile(const String& url, const String& filePath, 
     CLEANUP_FLASH_HTTP();
 #undef CLEANUP_FLASH_HTTP
 
-    if (bytesReadTotal != requiredSize) {
-        Serial.printf("[DOWNLOAD-FLASH] %s Error: Short write! Expected %u, wrote %u bytes.\n",
-                      label, (unsigned)requiredSize, (unsigned)bytesReadTotal);
+    if (writeFailure || bytesReadTotal != requiredSize) {
+        Serial.printf("[DOWNLOAD-FLASH] %s Error: %s! Expected %u, wrote %u bytes.\n",
+                      label, writeFailure ? "Write error" : "Short read",
+                      (unsigned)requiredSize, (unsigned)bytesReadTotal);
         LittleFS.remove(filePath);
         return false;
     }
@@ -415,20 +439,110 @@ bool MediaDownloader::downloadToFile(const String& url, const String& filePath, 
     return true;
 }
 
-bool MediaDownloader::validateSTIKFile(const String& filePath) {
-    if (!LittleFS.exists(filePath)) return false;
-    File f = LittleFS.open(filePath, FILE_READ);
-    if (!f || f.size() < 16) {
-        if (f) f.close();
+bool MediaDownloader::downloadMedia(const MediaItem& item, DownloadedMedia& outResult) {
+    if (!item.isValid()) {
+        Serial.println("[DOWNLOAD] Error: Invalid MediaItem details.");
         return false;
     }
 
-    uint8_t header[16];
-    size_t readCount = f.read(header, 16);
-    f.close();
+    bool wasBtActive = (bluetoothAudioGetState() != BluetoothState::OFF);
+    bool wasBtConnected = bluetoothAudioConnected();
+    if (wasBtActive) {
+        suspendBluetoothForDownload();
+    }
 
-    if (readCount < 16) return false;
-    return validateSTIK(header, readCount);
+    struct BtRestorer {
+        bool active;
+        bool connected;
+        ~BtRestorer() {
+            if (active) {
+                restoreBluetoothAfterDownload(connected);
+            }
+        }
+    } btRestorer{wasBtActive, wasBtConnected};
+
+    Serial.println();
+    Serial.println("========================================");
+    Serial.printf("[CONTENT] Selected Item:\n  ID:   %s\n  Name: %s\n", item.id.c_str(), item.name.c_str());
+    Serial.println("========================================");
+
+    Serial.printf("[MEM] Free heap before: %u, largest block: %u\n", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+
+    DownloadedMedia tempMedia;
+    tempMedia.item = item;
+
+    const String finalVideoPath = "/stream_video.bin";
+    const String tmpVideoPath = "/stream_video.bin.tmp";
+
+    // 1. Download video directly into SPIFFS filesystem file using small bounded buffer
+    size_t vSize = 0;
+    if (!downloadToFile(item.videoUrl, tmpVideoPath, MAX_VIDEO_SIZE, "Video", vSize)) {
+        Serial.println("[DOWNLOAD] Video download to SPIFFS failed.");
+        if (LittleFS.exists(tmpVideoPath)) LittleFS.remove(tmpVideoPath);
+        return false;
+    }
+
+    // 2. Validate STIK header of the temporary file before touching final file
+    if (!validateSTIKFile(tmpVideoPath)) {
+        Serial.println("[CONTENT] STIK validation FAILED on downloaded file.");
+        if (LittleFS.exists(tmpVideoPath)) LittleFS.remove(tmpVideoPath);
+        return false;
+    }
+
+    // 3. Atomically replace final video file
+    if (LittleFS.exists(finalVideoPath)) {
+        LittleFS.remove(finalVideoPath);
+    }
+    if (!LittleFS.rename(tmpVideoPath, finalVideoPath)) {
+        Serial.println("[DOWNLOAD] Error: Failed to rename temp video file to final path.");
+        if (LittleFS.exists(tmpVideoPath)) LittleFS.remove(tmpVideoPath);
+        return false;
+    }
+
+    tempMedia.videoFilePath = finalVideoPath;
+    tempMedia.videoSize = vSize;
+    tempMedia.videoBuffer = nullptr;
+
+    // 4. Audio download:
+    // If PSRAM is available (ESP32-CAM target), download audio into PSRAM.
+    // If PSRAM is absent (ESP32-WROOM target), stream audio into SPIFFS for ring-buffered BT playback.
+    if (psramFound()) {
+        if (!downloadToPSRAM(item.audioUrl, tempMedia.audioBuffer, tempMedia.audioSize, MAX_AUDIO_SIZE, "Audio")) {
+            Serial.println("[DOWNLOAD] Audio download failed (continuing video without audio).");
+            tempMedia.audioBuffer = nullptr;
+            tempMedia.audioSize = 0;
+        } else {
+            validatePCM(tempMedia.audioBuffer, tempMedia.audioSize);
+        }
+    } else if (item.audioUrl.length() > 0) {
+        const String finalAudioPath = "/stream_audio.bin";
+        const String tmpAudioPath = "/stream_audio.bin.tmp";
+        if (LittleFS.exists(finalAudioPath)) LittleFS.remove(finalAudioPath);
+        if (LittleFS.exists(tmpAudioPath)) LittleFS.remove(tmpAudioPath);
+
+        size_t aSize = 0;
+        if (downloadToFile(item.audioUrl, tmpAudioPath, MAX_AUDIO_SIZE, "Audio", aSize, true) && aSize > 0) {
+            if (LittleFS.rename(tmpAudioPath, finalAudioPath)) {
+                tempMedia.audioFilePath = finalAudioPath;
+                tempMedia.audioSize = aSize;
+                Serial.printf("[DOWNLOAD] WROOM-32: Audio saved to SPIFFS (%u bytes) for Bluetooth playback!\n", (unsigned)aSize);
+            } else {
+                if (LittleFS.exists(tmpAudioPath)) LittleFS.remove(tmpAudioPath);
+            }
+        } else {
+            if (LittleFS.exists(tmpAudioPath)) LittleFS.remove(tmpAudioPath);
+            Serial.println("[DOWNLOAD] WROOM-32: Audio download skipped or no space remaining (continuing video without audio).");
+        }
+        tempMedia.audioBuffer = nullptr;
+    } else {
+        tempMedia.audioBuffer = nullptr;
+        tempMedia.audioSize = 0;
+    }
+
+    // Transfer ownership on clean success
+    outResult = tempMedia;
+    Serial.printf("[DOWNLOAD] Video downloaded and validated successfully in SPIFFS! (%u bytes)\n", (unsigned)vSize);
+    return true;
 }
 
 bool MediaDownloader::downloadToFlash(const MediaItem& item, const String& videoFilePath, const String& audioFilePath,
@@ -439,41 +553,36 @@ bool MediaDownloader::downloadToFlash(const MediaItem& item, const String& video
     }
 
     bool wasBtActive = (bluetoothAudioGetState() != BluetoothState::OFF);
+    bool wasBtConnected = bluetoothAudioConnected();
     if (wasBtActive) {
-        Serial.println("[DOWNLOAD-FLASH] Pausing Bluetooth stack to maximize heap for Flash download...");
-        bluetoothAudioEnd();
-        delay(60);
+        suspendBluetoothForDownload();
     }
 
     struct BtRestorer {
         bool active;
+        bool connected;
         ~BtRestorer() {
             if (active) {
-                Serial.println("[DOWNLOAD-FLASH] Restoring Bluetooth stack...");
-                bluetoothAudioBegin();
+                restoreBluetoothAfterDownload(connected);
             }
         }
-    } btRestorer{wasBtActive};
+    } btRestorer{wasBtActive, wasBtConnected};
 
     Serial.println();
     Serial.println("========================================");
     Serial.printf("[DOWNLOAD-FLASH] Storing item to Flash:\n  ID:   %s\n  Name: %s\n", item.id.c_str(), item.name.c_str());
     Serial.println("========================================");
 
-    // Requirement: Clean/delete old offline video first to maximize flash space
-    OfflineStorage::getInstance().clearOfflineStorage();
-
-    // Ensure target directory exists for item
-    String itemDir = String(OFFLINE_DIR) + "/" + item.id;
-    if (!LittleFS.exists(OFFLINE_DIR)) LittleFS.mkdir(OFFLINE_DIR);
-    if (!LittleFS.exists(itemDir)) LittleFS.mkdir(itemDir);
-
     String tmpVideoPath = videoFilePath + ".tmp";
     String tmpAudioPath = audioFilePath + ".tmp";
 
-    // Clean up any stale temp files first
+    // Clean up any stale temp or stream cache files first so offline storage has full partition space
     if (LittleFS.exists(tmpVideoPath)) LittleFS.remove(tmpVideoPath);
     if (LittleFS.exists(tmpAudioPath)) LittleFS.remove(tmpAudioPath);
+    if (LittleFS.exists("/stream_video.bin.tmp")) LittleFS.remove("/stream_video.bin.tmp");
+    if (LittleFS.exists("/stream_audio.bin.tmp")) LittleFS.remove("/stream_audio.bin.tmp");
+    if (LittleFS.exists("/stream_audio.bin")) LittleFS.remove("/stream_audio.bin");
+    if (LittleFS.exists("/stream_video.bin")) LittleFS.remove("/stream_video.bin");
 
     // 1. Download video directly to temporary flash file
     size_t vSize = 0;
@@ -507,7 +616,14 @@ bool MediaDownloader::downloadToFlash(const MediaItem& item, const String& video
         return false;
     }
 
-    // 5. Both files completely downloaded and validated! Atomically replace final files.
+    // 5. Both files completely downloaded and validated! Clean old offline files and atomically replace final files.
+    OfflineStorage::getInstance().clearOfflineStorage();
+
+    // Ensure target directory exists for item
+    String itemDir = String(OFFLINE_DIR) + "/" + item.id;
+    if (!LittleFS.exists(OFFLINE_DIR)) LittleFS.mkdir(OFFLINE_DIR);
+    if (!LittleFS.exists(itemDir)) LittleFS.mkdir(itemDir);
+
     if (LittleFS.exists(videoFilePath)) LittleFS.remove(videoFilePath);
     if (!LittleFS.rename(tmpVideoPath, videoFilePath)) {
         Serial.println("[DOWNLOAD-FLASH] Error: Failed to rename temp video file.");

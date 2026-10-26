@@ -532,68 +532,63 @@ bool OfflineStorage::loadItemToPSRAM(const MediaItem& item, DownloadedMedia& out
     }
 
     File vFile = LittleFS.open(vPath, FILE_READ);
-    File aFile = LittleFS.open(aPath, FILE_READ);
-
-    if (!vFile || !aFile) {
-        Serial.printf("[STORAGE] Failed to open flash files: %s or %s\n", vPath.c_str(), aPath.c_str());
-        if (vFile) vFile.close();
-        if (aFile) aFile.close();
+    if (!vFile) {
+        Serial.printf("[STORAGE] Failed to open flash video file: %s\n", vPath.c_str());
         return false;
     }
 
     size_t vSize = vFile.size();
-    size_t aSize = aFile.size();
-
-    if (!psramFound()) {
-        Serial.println("[STORAGE] PSRAM not found, cannot stage offline media.");
-        vFile.close();
-        aFile.close();
-        return false;
-    }
-
-    size_t freePsram = ESP.getFreePsram();
-    if (freePsram < (vSize + aSize + PSRAM_SAFETY_MARGIN_BYTES)) {
-        Serial.printf("[STORAGE] Insufficient PSRAM for offline media (Need %u, Free %u bytes).\n",
-                      (unsigned)(vSize + aSize + PSRAM_SAFETY_MARGIN_BYTES), (unsigned)freePsram);
-        vFile.close();
-        aFile.close();
-        return false;
-    }
+    vFile.close();
 
     DownloadedMedia temp;
     temp.item = item;
     temp.item.isOfflineStored = true;
-    temp.videoBuffer = (uint8_t*)ps_malloc(vSize);
-    temp.audioBuffer = (uint8_t*)ps_malloc(aSize);
-
-    if (!temp.videoBuffer || !temp.audioBuffer) {
-        Serial.println("[STORAGE] ps_malloc allocation failed for offline media buffers.");
-        temp.freeBuffers();
-        vFile.close();
-        aFile.close();
-        return false;
-    }
-
-    Serial.printf("[STORAGE] Reading offline media '%s' from Flash into PSRAM (Video: %u, Audio: %u bytes)...\n",
-                  item.name.c_str(), (unsigned)vSize, (unsigned)aSize);
-
-    size_t vRead = vFile.read(temp.videoBuffer, vSize);
-    size_t aRead = aFile.read(temp.audioBuffer, aSize);
-    vFile.close();
-    aFile.close();
-
-    if (vRead != vSize || aRead != aSize) {
-        Serial.printf("[STORAGE] Error: Incomplete read from flash! (V: %u/%u, A: %u/%u)\n",
-                      (unsigned)vRead, (unsigned)vSize, (unsigned)aRead, (unsigned)aSize);
-        temp.freeBuffers();
-        return false;
-    }
-
+    temp.videoFilePath = vPath;
     temp.videoSize = vSize;
-    temp.audioSize = aSize;
+    temp.videoBuffer = nullptr;
+
+    if (psramFound() && LittleFS.exists(aPath)) {
+        File aFile = LittleFS.open(aPath, FILE_READ);
+        if (aFile) {
+            size_t aSize = aFile.size();
+            size_t freePsram = ESP.getFreePsram();
+            if (aSize > 0 && freePsram >= (aSize + PSRAM_SAFETY_MARGIN_BYTES)) {
+                temp.audioBuffer = (uint8_t*)ps_malloc(aSize);
+                if (temp.audioBuffer) {
+                    size_t aRead = aFile.read(temp.audioBuffer, aSize);
+                    if (aRead == aSize) {
+                        temp.audioSize = aSize;
+                        temp.audioFilePath = aPath;
+                        Serial.printf("[STORAGE] Audio loaded into PSRAM (%u bytes).\n", (unsigned)aSize);
+                    } else {
+                        free(temp.audioBuffer);
+                        temp.audioBuffer = nullptr;
+                        temp.audioSize = 0;
+                    }
+                }
+            }
+            aFile.close();
+        }
+    } else if (LittleFS.exists(aPath)) {
+        File aFile = LittleFS.open(aPath, FILE_READ);
+        if (aFile) {
+            size_t aSize = aFile.size();
+            aFile.close();
+            if (aSize > 0) {
+                temp.audioFilePath = aPath;
+                temp.audioSize = aSize;
+                Serial.printf("[STORAGE] WROOM-32: Streaming video & audio (%u bytes) directly from SPIFFS.\n", (unsigned)aSize);
+            }
+        }
+        temp.audioBuffer = nullptr;
+    } else {
+        temp.audioBuffer = nullptr;
+        temp.audioSize = 0;
+    }
 
     outResult = temp;
-    Serial.println("[STORAGE] Offline media staged into PSRAM successfully!");
+    Serial.printf("[STORAGE] Offline media '%s' ready from SPIFFS! (Video: %u bytes, Audio: %u bytes)\n",
+                  item.name.c_str(), (unsigned)vSize, (unsigned)temp.audioSize);
     return true;
 }
 

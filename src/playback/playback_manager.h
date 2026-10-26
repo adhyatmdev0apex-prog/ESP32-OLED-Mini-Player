@@ -21,7 +21,7 @@ public:
 
     void begin();
     
-    // Sets and swaps new PSRAM media cleanly, freeing previous PSRAM buffers.
+    // Sets and swaps new media cleanly, supporting both SPIFFS-backed and in-memory media.
     bool setMedia(DownloadedMedia& newMedia);
 
     // Fallback: Loads local LittleFS media assets if present (/stickman.vs.geometry_dash.bin & .pcm)
@@ -48,7 +48,9 @@ private:
     PlaybackManager& operator=(const PlaybackManager&) = delete;
 
     bool parseSTIKHeader(const uint8_t* data, size_t size);
+    bool parseSTIKHeaderFromFile(File& file);
     bool readNextFrame(const uint8_t* data, size_t size, size_t& offset);
+    bool readNextFrameFromFile(File& file);
     bool decodeRLE(const uint8_t* payload, size_t payloadLen, uint8_t* output);
 
     DownloadedMedia m_currentMedia;
@@ -62,8 +64,15 @@ private:
     uint32_t m_frameCount;
 
     // Buffer pointers allocated in PSRAM or Heap
+    static constexpr size_t AUDIO_RING_SIZE = 8192; // 8KB power-of-2 ring buffer (~1.64s @ 5kHz)
     uint8_t* m_frameBuffer;
     uint8_t* m_deltaBuffer;
+    uint8_t* m_rleBuffer;
+    uint8_t* m_audioRingBuffer;
+    File     m_vFile;
+    File     m_aFile;
+    bool     m_inPlayLoop;
+    bool     m_restartRequested;
 };
 
 #endif // PLAYBACK_MANAGER_H

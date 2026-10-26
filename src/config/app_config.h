@@ -9,24 +9,24 @@
 
 // --- Wi-Fi Configuration ---
 #ifndef WIFI_SSID
-#define WIFI_SSID "GUEST"
+#define WIFI_SSID "JioFiber-7JQa3"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "N@KKUND!@2026#!"
+#define WIFI_PASSWORD "S4pQqJAdRMFyJQnu"
 #endif
 
 // Secondary / Fallback Wi-Fi
 #ifndef WIFI_FALLBACK_SSID
-#define WIFI_FALLBACK_SSID "JioFiber-7JQa3"
+#define WIFI_FALLBACK_SSID "GUEST"
 #endif
 
 #ifndef WIFI_FALLBACK_PASSWORD
-#define WIFI_FALLBACK_PASSWORD "S4pQqJAdRMFyJQnu"
+#define WIFI_FALLBACK_PASSWORD "N@KKUND!@2026#!"
 #endif
 
-#define WIFI_CONNECT_TIMEOUT_MS 12000
-#define WIFI_RECONNECT_INTERVAL_MS 10000
+#define WIFI_CONNECT_TIMEOUT_MS 15000
+#define WIFI_RECONNECT_INTERVAL_MS 9000
 
 // --- Persistent Offline Storage (LittleFS / SPIFFS) ---
 #define OFFLINE_STORAGE_LIMIT_BYTES (2050000UL) // 2.05 MB maximum per offline media package
@@ -67,8 +67,8 @@
 #define BT_AUDIO_SYNC_OFFSET_MS 80 // Pre-lead audio by 80ms to match Bluetooth speaker buffer latency
 
 // --- Physical Button Configuration (Active-LOW to GND) ---
-#define PIN_BUTTON_SCROLL 2              // GPIO 2: Scroll down (hold to keep scrolling)
-#define PIN_BUTTON_SELECT 15             // GPIO 15: Select / Play / Pause (hold 2s to save to SPIFFS)
+#define PIN_BUTTON_SCROLL 32             // GPIO 32: Scroll down (hold to keep scrolling)
+#define PIN_BUTTON_SELECT 33             // GPIO 33: Select / Play / Pause (hold 2s to save to SPIFFS)
 #define BUTTON_DEBOUNCE_MS 40            // Debounce period
 #define BUTTON_HOLD_SCROLL_INITIAL_MS 450 // Delay before continuous auto-scroll starts
 #define BUTTON_HOLD_SCROLL_RATE_MS 200   // Repeat rate for continuous auto-scroll

@@ -45,7 +45,11 @@ bool ContentManager::downloadItem(size_t index, DownloadedMedia& outResult) {
         return false;
     }
 
-    PlaybackManager::getInstance().freeCurrentMedia();
+    if (psramFound()) {
+        PlaybackManager::getInstance().freeCurrentMedia();
+    } else {
+        PlaybackManager::getInstance().stop();
+    }
 
     const auto& item = m_catalogue.items[index];
     if (m_isOfflineMode || item.isOfflineStored) {
@@ -106,7 +110,11 @@ bool ContentManager::switchToOfflineLibrary() {
 bool ContentManager::downloadItemById(const String& id, DownloadedMedia& outResult) {
     for (const auto& item : m_catalogue.items) {
         if (item.id == id) {
-            PlaybackManager::getInstance().freeCurrentMedia();
+            if (psramFound()) {
+                PlaybackManager::getInstance().freeCurrentMedia();
+            } else {
+                PlaybackManager::getInstance().stop();
+            }
             return m_downloader.downloadMedia(item, outResult);
         }
     }
@@ -121,7 +129,11 @@ bool ContentManager::downloadCustomUrls(const String& videoUrl, const String& au
     item.videoUrl = ContentAPI::buildAbsoluteUrl(m_api.getBaseUrl(), videoUrl);
     item.audioUrl = ContentAPI::buildAbsoluteUrl(m_api.getBaseUrl(), audioUrl);
 
-    PlaybackManager::getInstance().freeCurrentMedia();
+    if (psramFound()) {
+        PlaybackManager::getInstance().freeCurrentMedia();
+    } else {
+        PlaybackManager::getInstance().stop();
+    }
     return m_downloader.downloadMedia(item, outResult);
 }
 

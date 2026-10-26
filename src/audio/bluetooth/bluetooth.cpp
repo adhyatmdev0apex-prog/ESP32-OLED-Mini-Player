@@ -82,6 +82,11 @@ static uint8_t              s_target_addr[6]       = {0};
 static size_t               s_target_idx           = SIZE_MAX;
 static char                 s_connected_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1] = "";
 
+// ---- Saved preferred peer for direct page-scan reconnect ----
+static uint8_t              s_saved_peer_addr[6]   = {0x30, 0x53, 0xC1, 0x51, 0xA6, 0xAB};
+static char                 s_saved_peer_name[ESP_BT_GAP_MAX_BDNAME_LEN + 1] = "WH-CH510";
+static bool                 s_saved_peer_valid     = true;
+
 // ---- Auto-connect timing ----
 // millis() timestamps
 static unsigned long        s_scan_started_ms    = 0;   // when scan began
@@ -107,6 +112,7 @@ static const size_t HARDCODED_PREF_COUNT =
 static const uint8_t*  s_pcm_data = nullptr;
 static size_t          s_pcm_size = 0;
 static uint32_t        s_pcm_sample_rate = 5000;
+static uint32_t        s_pcm_ring_mask = 0xFFFFFFFFUL;
 
 // Current playback time driven by the video player
 static volatile uint32_t s_playback_time_ms = 0;
@@ -272,6 +278,10 @@ static bool ssidCallback(
             s_scan_found_pref    = true;
             s_connect_req        = true;
             memcpy(s_target_addr, addr, 6);
+            memcpy(s_saved_peer_addr, addr, 6);
+            strncpy(s_saved_peer_name, name, ESP_BT_GAP_MAX_BDNAME_LEN);
+            s_saved_peer_name[ESP_BT_GAP_MAX_BDNAME_LEN] = '\0';
+            s_saved_peer_valid = true;
 
             // Find the index of this device in s_devices[]
             devLock();
@@ -342,7 +352,14 @@ static void onConnectionState(
                     ESP_BT_GAP_MAX_BDNAME_LEN
                 );
                 s_connected_name[ESP_BT_GAP_MAX_BDNAME_LEN] = '\0';
+                memcpy(s_saved_peer_addr, s_devices[s_target_idx].addr, 6);
+                strncpy(s_saved_peer_name, s_connected_name, ESP_BT_GAP_MAX_BDNAME_LEN);
+                s_saved_peer_name[ESP_BT_GAP_MAX_BDNAME_LEN] = '\0';
+                s_saved_peer_valid = true;
                 devUnlock();
+            } else if (s_connected_name[0] == '\0' && s_saved_peer_valid) {
+                strncpy(s_connected_name, s_saved_peer_name, ESP_BT_GAP_MAX_BDNAME_LEN);
+                s_connected_name[ESP_BT_GAP_MAX_BDNAME_LEN] = '\0';
             }
 
             Serial.printf(
@@ -351,6 +368,9 @@ static void onConnectionState(
                     ? s_connected_name
                     : "(unknown)"
             );
+
+            // Immediately trigger A2DP media ready check instead of waiting 10s for heartbeat timer
+            ccall_a2d_app_heart_beat(nullptr);
             break;
 
         case ESP_A2D_CONNECTION_STATE_DISCONNECTED:
@@ -442,8 +462,8 @@ static int32_t onPCM(Frame* frames, int32_t count)
 
             // Read 8-bit unsigned (0..255, center 128)
             // Convert to signed 16-bit range (-32768..32767)
-            int32_t s0 = ((int32_t)s_pcm_data[idx0] - 128) << 8;
-            int32_t s1 = ((int32_t)s_pcm_data[idx1] - 128) << 8;
+            int32_t s0 = ((int32_t)s_pcm_data[idx0 & s_pcm_ring_mask] - 128) << 8;
+            int32_t s1 = ((int32_t)s_pcm_data[idx1 & s_pcm_ring_mask] - 128) << 8;
 
             // High-quality linear interpolation:
             // Completely eliminates the 1000Hz stair-stepping screech and aliasing!
@@ -566,7 +586,14 @@ void bluetoothAudioBegin()
 
     // ---- Configure A2DP library ----
     s_a2dp.set_local_name(BT_LOCAL_NAME);
-    s_a2dp.set_auto_reconnect(false);   // we manage reconnect manually
+    if (s_saved_peer_valid) {
+        s_a2dp.set_auto_reconnect(s_saved_peer_addr, 2);
+        memcpy(s_target_addr, s_saved_peer_addr, 6);
+        strncpy(s_connected_name, s_saved_peer_name, ESP_BT_GAP_MAX_BDNAME_LEN);
+        s_connected_name[ESP_BT_GAP_MAX_BDNAME_LEN] = '\0';
+    } else {
+        s_a2dp.set_auto_reconnect(false);
+    }
     s_a2dp.set_ssp_enabled(true);       // modern speakers use SSP
     s_a2dp.set_pin_code("1234", ESP_BT_PIN_TYPE_VARIABLE);
     s_a2dp.set_data_callback_in_frames(onPCM);
@@ -747,6 +774,16 @@ bool bluetoothAudioConnectByName(const char* name)
     devUnlock();
 
     if (best == SIZE_MAX) {
+        if (s_saved_peer_valid && (strstr(name, "WH-CH510") != nullptr || strstr(name, "WHCH-510") != nullptr || strstr(s_saved_peer_name, name) != nullptr)) {
+            Serial.printf(BT_TAG "Direct page-scan connecting to saved preferred device: %s [%02X:%02X:%02X:%02X:%02X:%02X]\n",
+                          s_saved_peer_name,
+                          s_saved_peer_addr[0], s_saved_peer_addr[1], s_saved_peer_addr[2],
+                          s_saved_peer_addr[3], s_saved_peer_addr[4], s_saved_peer_addr[5]);
+            bluetoothAudioEnd();
+            delay(100);
+            bluetoothAudioBegin();
+            return true;
+        }
         Serial.printf(BT_TAG "No device matching '%s' found.\n", name);
         Serial.println(BT_TAG "Run 'bt scan' first.");
         return false;
@@ -880,6 +917,11 @@ void bluetoothAudioPreferClear()
 // AUDIO PLAYBACK
 // ============================================================
 
+void bluetoothAudioSetPCMRingMask(uint32_t ring_mask)
+{
+    s_pcm_ring_mask = ring_mask;
+}
+
 void bluetoothAudioSetPCMBuffer(const uint8_t* pcm_data, size_t size_bytes, uint32_t sample_rate)
 {
     s_pcm_data = pcm_data;
@@ -967,7 +1009,7 @@ void bluetoothAudioUpdate()
             // in SCANNING state.
             //
             // Detect scan completion by checking library's is_discovery_active()
-            if (s_a2dp_started && !s_a2dp.is_discovery_active()) {
+            if (s_a2dp_started && (now - s_scan_started_ms) >= 15000 && !s_a2dp.is_discovery_active()) {
                 if (!s_scan_found_pref) {
                     Serial.printf("[MEM] After BT Scan: heap=%u largest=%u PSRAM=%u\n", ESP.getFreeHeap(), ESP.getMaxAllocHeap(), ESP.getFreePsram());
                     // No preferred device found → schedule rescan
