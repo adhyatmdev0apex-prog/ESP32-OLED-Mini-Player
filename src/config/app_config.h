@@ -4,25 +4,38 @@
 #include <Arduino.h>
 
 // ============================================================
-// ESP32-CAM REMOTE MEDIA SYSTEM CONFIGURATION
+// TARGET BOARD SELECTION & PIN CONFIGURATION
 // ============================================================
+#if defined(TARGET_ESP32CAM) || defined(ARDUINO_ESP32_CAM)
+  #define BOARD_TARGET_NAME "ESP32-CAM (with PSRAM)"
+#elif defined(TARGET_ESP32DEV_PSRAM)
+  #define BOARD_TARGET_NAME "ESP32 Dev Module (with PSRAM)"
+#else
+  #define BOARD_TARGET_NAME "ESP32 Dev Module (No PSRAM)"
+#endif
+
+// --- Display & Physical Button Pin Configuration ---
+#define OLED_SDA 13                      // GPIO 13: I2C SDA
+#define OLED_SCL 14                      // GPIO 14: I2C SCL
+#define PIN_BUTTON_SCROLL 4              // GPIO 4:  Scroll down (Active-LOW to GND)
+#define PIN_BUTTON_SELECT 5              // GPIO 5:  Select / Play / Pause (Active-LOW to GND)
 
 // --- Wi-Fi Configuration ---
 #ifndef WIFI_SSID
-#define WIFI_SSID "YourWiFiSSID" // <-- Update this to your Wi-Fi SSID
+#define WIFI_SSID "YourWiFiSSID"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "YourWiFiPassword" // <-- Update this to your Wi-Fi password
+#define WIFI_PASSWORD "YourWiFiPassword"
 #endif
 
 // Secondary / Fallback Wi-Fi
 #ifndef WIFI_FALLBACK_SSID
-#define WIFI_FALLBACK_SSID "YourFallbackWiFiSSID" // <-- Update this to your fallback Wi-Fi SSID
+#define WIFI_FALLBACK_SSID "YourFallbackWiFiSSID"
 #endif
 
 #ifndef WIFI_FALLBACK_PASSWORD
-#define WIFI_FALLBACK_PASSWORD "YourFallbackWiFiPassword" // <-- Update this to your fallback Wi-Fi password
+#define WIFI_FALLBACK_PASSWORD "YourFallbackWiFiPassword"
 #endif
 
 #define WIFI_CONNECT_TIMEOUT_MS 15000
@@ -35,10 +48,6 @@
 #define LEGACY_OFFLINE_CATALOGUE_PATH "/offline_catalogue.json"
 
 // --- Server & API Configuration ---
-// IMPORTANT: "localhost" will NOT work from the ESP32-CAM!
-// Use the computer's LAN IP address (e.g. http://192.168.1.10:3000)
-// or a publicly reachable web server URL.
-// Do NOT include a trailing slash in MEDIA_SERVER_BASE_URL.
 #ifndef MEDIA_SERVER_BASE_URL
 #define MEDIA_SERVER_BASE_URL "https://oled-mini-player.onrender.com"
 #endif
@@ -48,14 +57,12 @@
 #define CATALOGUE_PAGE_SIZE 10
 
 // --- Memory & Download Limits ---
-#define MAX_VIDEO_SIZE (3500000UL)       // 3.5 MB
-#define MAX_AUDIO_SIZE (2500000UL)       // 2.5 MB (supports full-length audio in PSRAM/spiffs)
+#define MAX_VIDEO_SIZE (3500000UL)          // 3.5 MB
+#define MAX_AUDIO_SIZE (2500000UL)          // 2.5 MB (supports full-length audio in PSRAM/spiffs)
 #define MAX_COMBINED_MEDIA_SIZE (3900000UL) // 3.9 MB (fits in 4.19MB PSRAM)
 #define PSRAM_SAFETY_MARGIN_BYTES (250000UL) // 250 KB reserved for stack/heap/BT
 
-// --- OLED Pin Configuration ---
-#define OLED_SDA 13
-#define OLED_SCL 14
+// --- OLED Speed ---
 #define OLED_I2C_SPEED 800000
 
 // --- Local Fallback Assets ---
@@ -66,13 +73,11 @@
 #define AUDIO_SAMPLE_RATE 5000 // 5000 Hz, 8-bit unsigned PCM mono
 #define BT_AUDIO_SYNC_OFFSET_MS 80 // Pre-lead audio by 80ms to match Bluetooth speaker buffer latency
 
-// --- Physical Button Configuration (Active-LOW to GND) ---
-#define PIN_BUTTON_SCROLL 4             // GPIO 4: Scroll down (hold to keep scrolling)
-#define PIN_BUTTON_SELECT 5             // GPIO 5: Select / Play / Pause (hold 2s to save to SPIFFS)
-#define BUTTON_DEBOUNCE_MS 40            // Debounce period
+// --- Physical Button Timing (Active-LOW to GND) ---
+#define BUTTON_DEBOUNCE_MS 40             // Debounce period
 #define BUTTON_HOLD_SCROLL_INITIAL_MS 450 // Delay before continuous auto-scroll starts
-#define BUTTON_HOLD_SCROLL_RATE_MS 200   // Repeat rate for continuous auto-scroll
-#define BUTTON_LONG_PRESS_MS 1000        // 1 sec hold triggers Stop & Return to menu during playback
-#define BUTTON_HOLD_SAVE_SPIFFS_MS 2000  // 2 sec hold triggers Download to SPIFFS in browse
+#define BUTTON_HOLD_SCROLL_RATE_MS 200    // Repeat rate for continuous auto-scroll
+#define BUTTON_LONG_PRESS_MS 1000         // 1 sec hold triggers Stop & Return to menu during playback
+#define BUTTON_HOLD_SAVE_SPIFFS_MS 2000   // 2 sec hold triggers Download to SPIFFS in browse
 
 #endif // APP_CONFIG_H

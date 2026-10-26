@@ -50,9 +50,13 @@ PlaybackManager::PlaybackManager()
 
 void PlaybackManager::begin() {
     if (psramFound()) {
-        m_frameBuffer = (uint8_t*)ps_malloc(1024);
-        m_deltaBuffer = (uint8_t*)ps_malloc(1024);
-        m_rleBuffer   = (uint8_t*)ps_malloc(1040);
+        m_frameBuffer     = (uint8_t*)ps_malloc(1024);
+        m_deltaBuffer     = (uint8_t*)ps_malloc(1024);
+        m_rleBuffer       = (uint8_t*)ps_malloc(1040);
+        m_audioRingBuffer = (uint8_t*)ps_malloc(AUDIO_RING_SIZE);
+        if (m_audioRingBuffer) {
+            memset(m_audioRingBuffer, 128, AUDIO_RING_SIZE);
+        }
     } else {
         m_frameBuffer     = (uint8_t*)malloc(1024);
         m_deltaBuffer     = (uint8_t*)malloc(1024);

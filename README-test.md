@@ -46,9 +46,10 @@ The web control panel and media-management instructions are in
 
 ## Hardware
 
-- ESP32 development board or ESP32-CAM with usable PSRAM. The configured
-  `esp32cam` environment enables PSRAM-related build flags; streamed playback
-  requires PSRAM.
+- ESP32 development board or ESP32-CAM. The project has standard ESP32,
+  PSRAM-equipped ESP32, and ESP32-CAM PlatformIO profiles. Remote media
+  streaming requires PSRAM; the no-PSRAM profile can still use local
+  filesystem media where it fits.
 - 128×64 SSD1306-compatible I²C OLED.
 - Two momentary push buttons.
 - A Bluetooth Classic audio receiver (speaker, headphones, etc.).
@@ -56,19 +57,21 @@ The web control panel and media-management instructions are in
 
 ### Connections
 
-| Part | Firmware setting | Connection |
+| Part | Current firmware pin | Connection |
 | --- | --- | --- |
 | OLED SDA | GPIO 13 | OLED SDA |
 | OLED SCL | GPIO 14 | OLED SCL |
-| Scroll button | GPIO 32 | Button between GPIO and GND |
-| Select button | GPIO 33 | Button between GPIO and GND |
+| Scroll button | GPIO 4 | Button between GPIO and GND |
+| Select button | GPIO 5 | Button between GPIO and GND |
 | OLED power/ground | Board-dependent | Use the OLED module's rated supply and common GND |
 
 Buttons use the ESP32 internal pull-ups and are **active-low**: pressing
-connects the input to GND. Confirm that these pins are available on your exact
-board and do not conflict with its camera, boot, or peripheral wiring before
-connecting hardware. The authoritative pin definitions are in
-`src/config/app_config.h`.
+connects the input to GND. The current pin definitions are shared by all
+build profiles in `src/config/app_config.h`. Check your exact board's pinout
+before wiring: GPIO 4/5 may be used by onboard flash, SD-card interfaces, or
+other peripherals on some ESP32/ESP32-CAM boards, and GPIO 5 may affect boot
+strapping. Change the configuration to pins that are actually available on
+your board if needed. The OLED power pin and voltage are module-dependent.
 
 ## Requirements
 
@@ -79,9 +82,9 @@ connecting hardware. The authoritative pin definitions are in
 - A 2.4 GHz Wi-Fi network (when using the remote catalogue).
 - Bluetooth Classic A2DP playback device.
 
-The two PlatformIO environments are `esp32dev` and `esp32cam`, using the
-Arduino framework. Dependencies are declared in `platformio.ini`:
-U8g2, ESP32-A2DP, and ArduinoJson.
+The three PlatformIO environments are `esp32dev`, `esp32dev_psram`, and
+`esp32cam`, using the Arduino framework. Dependencies are declared in
+`platformio.ini`: U8g2, ESP32-A2DP, and ArduinoJson.
 
 ### Web server
 
@@ -109,9 +112,11 @@ is available in a new terminal's `PATH`.
 2. Set `WIFI_SSID` and `WIFI_PASSWORD` to the primary 2.4 GHz network.
 3. Optionally set `WIFI_FALLBACK_SSID` and `WIFI_FALLBACK_PASSWORD` to a
    second network. The firmware tries this profile after the primary times
-   out.
+   out. To disable the fallback profile, set its SSID to an empty string.
 4. Set `MEDIA_SERVER_BASE_URL` to the web server address. Do not add a
-   trailing slash. Example format:
+   trailing slash. The checked-in default points to the project's deployed
+   service; for a local server, use the computer's reachable LAN address.
+   Example format:
 
    ```text
    http://192.168.1.20:3000
@@ -124,37 +129,48 @@ is available in a new terminal's `PATH`.
    inbound connections to the configured port (default 3000) through the
    computer's firewall.
 
-The Wi-Fi profiles, server URL, timeouts, storage limits, display pins, and
-button pins are defined in `src/config/app_config.h`. Avoid committing real
-credentials. Prefer a local, untracked configuration or build-time overrides
-if maintaining a public fork; verify your chosen method preserves the macro
-names and string quoting expected by the C++ code.
+The checked-in configuration uses placeholder Wi-Fi values; replace them
+before flashing. The Wi-Fi profiles, server URL, timeouts, storage limits,
+display pins, and button pins are defined in `src/config/app_config.h`. Keep
+real credentials local and out of public commits. If credentials were
+previously published, rotate them on the access point.
+
+Bluetooth auto-connect preferences are in
+`src/audio/bluetooth/bluetooth_config.h`. Edit the preferred device-name
+substrings there to match the name advertised by your speaker/headphones.
 
 ## Build and flash the ESP32
 
 Run commands from the repository root. With PlatformIO CLI installed:
 
 ```powershell
-# Compile for a standard ESP32 development board
+# Compile for a standard ESP32 development board without PSRAM
 pio run -e esp32dev
 
-# Compile for ESP32-CAM (PSRAM flags enabled)
+# Compile for an ESP32 development board with PSRAM
+pio run -e esp32dev_psram
+
+# Compile for ESP32-CAM (PSRAM flags and CAM target enabled)
 pio run -e esp32cam
 
 # Upload firmware (replace COM5 with the board's serial port)
-pio run -e esp32cam -t upload --upload-port COM5
+pio run -e esp32dev_psram -t upload --upload-port COM5
 
 # Optional: upload the contents of data/ to the configured filesystem
-pio run -e esp32cam -t uploadfs --upload-port COM5
+pio run -e esp32dev_psram -t uploadfs --upload-port COM5
 
 # Open the serial monitor
 pio device monitor --port COM5 --baud 115200
 ```
 
-Use the `esp32dev` environment instead if that matches your board. Put local
-fallback assets in the root `data/` directory before running `uploadfs`.
-Filesystem upload erases/replaces the filesystem image on the device; back up
-any files you need first. The partition layout is in `partitions.csv`.
+Select the environment that matches the exact board and PSRAM configuration;
+change the example upload commands accordingly. The current configuration uses GPIO 4/5 for buttons in all profiles; check
+that these pins are suitable for your physical board. The PSRAM flags and
+board identification differ by environment. Remote media downloads are
+rejected by the firmware when PSRAM is not detected. Put local fallback assets in the
+root `data/` directory before running `uploadfs`. Filesystem upload erases or
+replaces the device filesystem image; back up any files you need first. The
+partition layout is in `partitions.csv`.
 
 After boot, check the serial output at 115200 baud for PSRAM detection, Wi-Fi
 connection, catalogue fetch, and Bluetooth status. If your board requires a
@@ -251,16 +267,16 @@ firmware filesystem assets, while `WEB/data/` belongs to the Node server.
 
 ## Use the player
 
-- **Scroll button (GPIO 32):** short press advances to the next item; holding
-  it starts repeat scrolling.
-- **Select button (GPIO 33):** short press downloads/loads the selected item
-  and starts playback.
+- **Scroll button:** short press advances to the next item; holding it starts
+  repeat scrolling. The GPIO depends on the selected board profile.
+- **Select button:** short press loads the selected item and starts playback.
+  The GPIO depends on the selected board profile.
 - **Select held for 1 second:** during playback, stops and returns to the
-  menu.
+  catalogue.
 - **Select held for 2 seconds:** in the online catalogue, saves the selected
-  compatible item for offline use. Only the currently selected offline item
-  is retained by the current implementation. The configured maximum offline
-  package size is 2,050,000 bytes.
+  item marked as offline-compatible for offline use. The configured maximum
+  offline package size is 2,050,000 bytes; storage space and the media pair's
+  actual size also constrain saving.
 - **Bluetooth:** the firmware starts an A2DP source and tries names listed in
   `src/audio/bluetooth/bluetooth_config.h`. Change those preferred-name
   substrings to match your receiver, or use the serial Bluetooth commands.
