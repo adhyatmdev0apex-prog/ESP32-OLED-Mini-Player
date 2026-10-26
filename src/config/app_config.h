@@ -9,20 +9,20 @@
 
 // --- Wi-Fi Configuration ---
 #ifndef WIFI_SSID
-#define WIFI_SSID "JioFiber-7JQa3"
+#define WIFI_SSID "YourWiFiSSID" // <-- Update this to your Wi-Fi SSID
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "S4pQqJAdRMFyJQnu"
+#define WIFI_PASSWORD "YourWiFiPassword" // <-- Update this to your Wi-Fi password
 #endif
 
 // Secondary / Fallback Wi-Fi
 #ifndef WIFI_FALLBACK_SSID
-#define WIFI_FALLBACK_SSID "GUEST"
+#define WIFI_FALLBACK_SSID "YourFallbackWiFiSSID" // <-- Update this to your fallback Wi-Fi SSID
 #endif
 
 #ifndef WIFI_FALLBACK_PASSWORD
-#define WIFI_FALLBACK_PASSWORD "N@KKUND!@2026#!"
+#define WIFI_FALLBACK_PASSWORD "YourFallbackWiFiPassword" // <-- Update this to your fallback Wi-Fi password
 #endif
 
 #define WIFI_CONNECT_TIMEOUT_MS 15000
@@ -40,7 +40,7 @@
 // or a publicly reachable web server URL.
 // Do NOT include a trailing slash in MEDIA_SERVER_BASE_URL.
 #ifndef MEDIA_SERVER_BASE_URL
-#define MEDIA_SERVER_BASE_URL "https://oled-mini-player.onrender.com" // <-- Update this to your server URL
+#define MEDIA_SERVER_BASE_URL "https://oled-mini-player.onrender.com"
 #endif
 
 #define HTTP_TIMEOUT_MS 10000
@@ -49,7 +49,7 @@
 
 // --- Memory & Download Limits ---
 #define MAX_VIDEO_SIZE (3500000UL)       // 3.5 MB
-#define MAX_AUDIO_SIZE (2500000UL)       // 2.5 MB (supports full-length audio in PSRAM)
+#define MAX_AUDIO_SIZE (2500000UL)       // 2.5 MB (supports full-length audio in PSRAM/spiffs)
 #define MAX_COMBINED_MEDIA_SIZE (3900000UL) // 3.9 MB (fits in 4.19MB PSRAM)
 #define PSRAM_SAFETY_MARGIN_BYTES (250000UL) // 250 KB reserved for stack/heap/BT
 
@@ -67,8 +67,8 @@
 #define BT_AUDIO_SYNC_OFFSET_MS 80 // Pre-lead audio by 80ms to match Bluetooth speaker buffer latency
 
 // --- Physical Button Configuration (Active-LOW to GND) ---
-#define PIN_BUTTON_SCROLL 32             // GPIO 32: Scroll down (hold to keep scrolling)
-#define PIN_BUTTON_SELECT 33             // GPIO 33: Select / Play / Pause (hold 2s to save to SPIFFS)
+#define PIN_BUTTON_SCROLL 4             // GPIO 4: Scroll down (hold to keep scrolling)
+#define PIN_BUTTON_SELECT 5             // GPIO 5: Select / Play / Pause (hold 2s to save to SPIFFS)
 #define BUTTON_DEBOUNCE_MS 40            // Debounce period
 #define BUTTON_HOLD_SCROLL_INITIAL_MS 450 // Delay before continuous auto-scroll starts
 #define BUTTON_HOLD_SCROLL_RATE_MS 200   // Repeat rate for continuous auto-scroll

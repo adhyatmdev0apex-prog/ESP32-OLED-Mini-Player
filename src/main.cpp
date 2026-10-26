@@ -61,7 +61,7 @@ void setup() {
 
     Serial.println();
     Serial.println("========================================");
-    Serial.println("   ESP32-CAM REMOTE MEDIA SYSTEM v1.0   ");
+    Serial.printf("   %s\n", BOARD_TARGET_NAME);
     Serial.println("========================================");
     Serial.println();
 
@@ -113,8 +113,8 @@ void setup() {
 
     s_appState = AppState::WIFI_CONNECTING;
     Serial.println("\n[SYSTEM] Standalone Product Mode Active.");
-    Serial.println("  Button IO2:  Scroll down catalogue (hold to continuously scroll)");
-    Serial.println("  Button IO15: Select / Play / Pause (hold 1s to stop & return to menu)");
+    Serial.printf("  Button Scroll (GPIO %d):  Scroll down catalogue (hold to continuously scroll)\n", PIN_BUTTON_SCROLL);
+    Serial.printf("  Button Select (GPIO %d): Select / Play / Pause (hold 1s to stop & return to menu)\n", PIN_BUTTON_SELECT);
     Serial.println("  Serial commands also available. Type 'help' for shell.\n> ");
 }
 
