@@ -64,6 +64,12 @@ void bluetoothAudioBegin();
 // Shut down cleanly (disconnects if connected).
 void bluetoothAudioEnd();
 
+// Suspend Bluetooth stack completely to release internal SRAM for HTTPS TLS
+void bluetoothAudioSuspend();
+
+// Restore Bluetooth stack and reconnect
+void bluetoothAudioRestore(bool waitForReconnect = false);
+
 
 // ============================================================
 // DISCOVERY

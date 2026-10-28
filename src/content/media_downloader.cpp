@@ -10,39 +10,11 @@
 #include <esp_bt_main.h>
 
 static void suspendBluetoothForDownload() {
-    Serial.println("[DOWNLOAD] Pausing Bluetooth & releasing controller RAM for HTTPS TLS...");
-    bluetoothAudioEnd();
-    delay(50);
-    if (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED) {
-        esp_bluedroid_disable();
-    }
-    if (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_INITIALIZED) {
-        esp_bluedroid_deinit();
-    }
-    btStop();
-    delay(50);
-    Serial.printf("[MEM] Bluetooth released: Free heap: %u, Largest block: %u\n",
-                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+    bluetoothAudioSuspend();
 }
 
 static void restoreBluetoothAfterDownload(bool waitForReconnect = false) {
-    Serial.println("[DOWNLOAD] Restoring Bluetooth stack for playback...");
-    btStart();
-    bluetoothAudioBegin();
-    if (waitForReconnect) {
-        Serial.println("[DOWNLOAD] Waiting for Bluetooth speaker to reconnect before starting playback...");
-        OLEDDisplay::getInstance().showStatusScreen("Bluetooth Audio", "Reconnecting...", "Please wait");
-        uint32_t waitStart = millis();
-        while (!bluetoothAudioStreaming() && (millis() - waitStart < 15000)) {
-            bluetoothAudioUpdate();
-            delay(20);
-        }
-        if (bluetoothAudioStreaming()) {
-            Serial.println("[DOWNLOAD] Bluetooth speaker reconnected & streaming!");
-        } else {
-            Serial.println("[DOWNLOAD] Bluetooth reconnect wait finished; playback will auto-sync on connect.");
-        }
-    }
+    bluetoothAudioRestore(waitForReconnect);
 }
 
 bool MediaDownloader::downloadToPSRAM(const String& url, uint8_t*& outBuffer, size_t& outSize, size_t maxSize, const char* label) {
@@ -471,6 +443,48 @@ bool MediaDownloader::downloadMedia(const MediaItem& item, DownloadedMedia& outR
     DownloadedMedia tempMedia;
     tempMedia.item = item;
 
+    // ============================================================
+    // 1. PSRAM TARGET (ESP32-CAM or ESP32 with PSRAM):
+    // Download BOTH video and audio directly into PSRAM in memory!
+    // ============================================================
+    if (psramFound()) {
+        // 1. Download video directly into PSRAM
+        if (!downloadToPSRAM(item.videoUrl, tempMedia.videoBuffer, tempMedia.videoSize, MAX_VIDEO_SIZE, "Video")) {
+            Serial.println("[DOWNLOAD] Video download to PSRAM failed.");
+            tempMedia.freeBuffers();
+            return false;
+        }
+
+        // 2. Validate STIK header immediately in PSRAM
+        if (!validateSTIK(tempMedia.videoBuffer, tempMedia.videoSize)) {
+            Serial.println("[CONTENT] STIK validation FAILED in PSRAM.");
+            tempMedia.freeBuffers();
+            return false;
+        }
+
+        // 3. Download audio directly into PSRAM
+        if (!downloadToPSRAM(item.audioUrl, tempMedia.audioBuffer, tempMedia.audioSize, MAX_AUDIO_SIZE, "Audio")) {
+            Serial.println("[DOWNLOAD] Audio download failed (continuing video without audio).");
+            tempMedia.audioBuffer = nullptr;
+            tempMedia.audioSize = 0;
+        } else {
+            validatePCM(tempMedia.audioBuffer, tempMedia.audioSize);
+        }
+
+        tempMedia.videoFilePath = ""; // in-memory PSRAM video
+        tempMedia.audioFilePath = "";
+
+        // Transfer ownership on clean success
+        outResult = tempMedia;
+        Serial.printf("[DOWNLOAD] Media loaded into PSRAM! Video: %u bytes, Audio: %u bytes\n",
+                      (unsigned)tempMedia.videoSize, (unsigned)tempMedia.audioSize);
+        return true;
+    }
+
+    // ============================================================
+    // 2. NO-PSRAM TARGET (Classic ESP32 WROOM):
+    // Stream video and audio into SPIFFS/LittleFS!
+    // ============================================================
     const String finalVideoPath = "/stream_video.bin";
     const String tmpVideoPath = "/stream_video.bin.tmp";
 
@@ -503,18 +517,8 @@ bool MediaDownloader::downloadMedia(const MediaItem& item, DownloadedMedia& outR
     tempMedia.videoSize = vSize;
     tempMedia.videoBuffer = nullptr;
 
-    // 4. Audio download:
-    // If PSRAM is available (ESP32-CAM target), download audio into PSRAM.
-    // If PSRAM is absent (ESP32-WROOM target), stream audio into SPIFFS for ring-buffered BT playback.
-    if (psramFound()) {
-        if (!downloadToPSRAM(item.audioUrl, tempMedia.audioBuffer, tempMedia.audioSize, MAX_AUDIO_SIZE, "Audio")) {
-            Serial.println("[DOWNLOAD] Audio download failed (continuing video without audio).");
-            tempMedia.audioBuffer = nullptr;
-            tempMedia.audioSize = 0;
-        } else {
-            validatePCM(tempMedia.audioBuffer, tempMedia.audioSize);
-        }
-    } else if (item.audioUrl.length() > 0) {
+    // 4. Audio download: stream audio into SPIFFS for ring-buffered BT playback
+    if (item.audioUrl.length() > 0) {
         const String finalAudioPath = "/stream_audio.bin";
         const String tmpAudioPath = "/stream_audio.bin.tmp";
         if (LittleFS.exists(finalAudioPath)) LittleFS.remove(finalAudioPath);

@@ -3,6 +3,7 @@
 #include "../wifi/wifi_manager.h"
 #include <WiFiClientSecure.h>
 #include "offline_storage.h"
+#include "../audio/bluetooth/bluetooth.h"
 
 ContentAPI::ContentAPI()
     : m_baseUrl(MEDIA_SERVER_BASE_URL) {
@@ -44,6 +45,22 @@ bool ContentAPI::fetchCatalogue(uint32_t page, uint32_t limit, CataloguePage& ou
         Serial.println("[API] Error: Cannot fetch catalogue, Wi-Fi not connected.");
         return false;
     }
+
+    bool wasBtActive = (bluetoothAudioGetState() != BluetoothState::OFF);
+    bool wasBtConnected = bluetoothAudioConnected();
+    if (wasBtActive) {
+        bluetoothAudioSuspend();
+    }
+
+    struct BtCatalogueRestorer {
+        bool active;
+        bool connected;
+        ~BtCatalogueRestorer() {
+            if (active) {
+                bluetoothAudioRestore(connected);
+            }
+        }
+    } btCatalogueRestorer{wasBtActive, wasBtConnected};
 
     String apiUrl = m_baseUrl + "/api/videos?page=" + String(page) + "&limit=" + String(limit);
     Serial.printf("[API] GET %s\n", apiUrl.c_str());

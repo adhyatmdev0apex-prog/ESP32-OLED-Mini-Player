@@ -6,24 +6,40 @@ OLEDDisplay& OLEDDisplay::getInstance() {
 }
 
 OLEDDisplay::OLEDDisplay()
-    : m_u8g2(U8G2_R0, U8X8_PIN_NONE, OLED_SCL, OLED_SDA) {
+    : m_u8g2(U8G2_R0, U8X8_PIN_NONE, OLED_SCL, OLED_SDA)
+    , m_displayConnected(false) {
 }
 
 void OLEDDisplay::begin() {
     Wire.begin(OLED_SDA, OLED_SCL);
-    m_u8g2.setBusClock(OLED_I2C_SPEED);
-    m_u8g2.begin();
     Wire.setClock(OLED_I2C_SPEED);
-    m_u8g2.clearBuffer();
-    m_u8g2.sendBuffer();
+    Wire.setTimeOut(10); // 10ms quick probe timeout
+
+    Wire.beginTransmission(0x3C);
+    uint8_t err = Wire.endTransmission();
+    m_displayConnected = (err == 0);
+
+    if (m_displayConnected) {
+        Serial.println("[DISPLAY] SSD1306 OLED detected on I2C (0x3C).");
+        m_u8g2.setBusClock(OLED_I2C_SPEED);
+        m_u8g2.begin();
+        Wire.setClock(OLED_I2C_SPEED);
+        m_u8g2.clearBuffer();
+        m_u8g2.sendBuffer();
+    } else {
+        Serial.printf("[DISPLAY] No OLED display detected on I2C (SDA=%d, SCL=%d). Headless mode active.\n",
+                      OLED_SDA, OLED_SCL);
+    }
 }
 
 void OLEDDisplay::clear() {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     m_u8g2.sendBuffer();
 }
 
 void OLEDDisplay::showSplashScreen() {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     m_u8g2.setFont(u8g2_font_6x10_tf);
     m_u8g2.drawStr(10, 15, "ESP32-CAM MEDIA");
@@ -33,6 +49,7 @@ void OLEDDisplay::showSplashScreen() {
 }
 
 void OLEDDisplay::showStatusScreen(const char* line1, const char* line2, const char* line3) {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     m_u8g2.setFont(u8g2_font_6x10_tf);
     if (line1) m_u8g2.drawStr(0, 15, line1);
@@ -43,6 +60,7 @@ void OLEDDisplay::showStatusScreen(const char* line1, const char* line2, const c
 
 void OLEDDisplay::showCatalogueScreen(size_t currentIndex, size_t totalItems, const char* title, const char* id,
                                       bool isOfflineCompatible, bool isOfflineStored, bool isOfflineMode) {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
 
     // Top Header Banner: inverted bar
@@ -103,7 +121,7 @@ void OLEDDisplay::showCatalogueScreen(size_t currentIndex, size_t totalItems, co
     } else if (isOfflineStored) {
         m_u8g2.drawStr(4, 46, "[OFFLINE] Saved on Flash");
     } else if (isOfflineCompatible) {
-        m_u8g2.drawStr(4, 46, "SPIFFS OK (Hold 15: Save)");
+        m_u8g2.drawStr(4, 46, "SPIFFS OK (Hold 12: Save)");
     } else {
         m_u8g2.drawStr(4, 46, "Stream & Play over Wi-Fi");
     }
@@ -111,13 +129,14 @@ void OLEDDisplay::showCatalogueScreen(size_t currentIndex, size_t totalItems, co
     // Bottom Navigation Prompts
     m_u8g2.drawHLine(0, 50, 128);
     m_u8g2.setFont(u8g2_font_5x7_tf);
-    m_u8g2.drawStr(2, 60, "[IO2] Next");
-    m_u8g2.drawStr(66, 60, "[IO15] Play");
+    m_u8g2.drawStr(2, 60, "[Scroll] Next");
+    m_u8g2.drawStr(66, 60, "[Select] Play");
 
     m_u8g2.sendBuffer();
 }
 
 void OLEDDisplay::showOfflineSavedSuccess(const char* title) {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     m_u8g2.drawFrame(0, 0, 128, 64);
     m_u8g2.drawFrame(2, 2, 124, 60);
@@ -134,6 +153,7 @@ void OLEDDisplay::showOfflineSavedSuccess(const char* title) {
 }
 
 void OLEDDisplay::showLoadingCatalogue() {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     m_u8g2.drawFrame(0, 0, 128, 64);
     m_u8g2.drawFrame(2, 2, 124, 60);
@@ -148,6 +168,7 @@ void OLEDDisplay::showLoadingCatalogue() {
 }
 
 void OLEDDisplay::showDownloadingScreen(const char* title) {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     m_u8g2.drawFrame(0, 0, 128, 64);
     m_u8g2.drawFrame(2, 2, 124, 60);
@@ -167,6 +188,7 @@ void OLEDDisplay::showDownloadingScreen(const char* title) {
 }
 
 void OLEDDisplay::showDownloadProgress(const char* label, size_t currentBytes, size_t totalBytes) {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
 
     // Outer double border
@@ -210,6 +232,7 @@ void OLEDDisplay::showDownloadProgress(const char* label, size_t currentBytes, s
 }
 
 void OLEDDisplay::showPauseScreen(const char* title) {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     m_u8g2.drawBox(24, 18, 80, 28);
     m_u8g2.setDrawColor(0);
@@ -218,11 +241,12 @@ void OLEDDisplay::showPauseScreen(const char* title) {
     m_u8g2.drawStr(36, 37, "PAUSED");
     m_u8g2.setDrawColor(1);
     m_u8g2.setFont(u8g2_font_4x6_tf);
-    m_u8g2.drawStr(4, 58, "[IO15] Resume | Hold: Stop");
+    m_u8g2.drawStr(4, 58, "[Select] Resume | Hold: Stop");
     m_u8g2.sendBuffer();
 }
 
 void OLEDDisplay::showPlayingScreen(const char* title) {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     
     // Draw decorative border
@@ -248,6 +272,7 @@ void OLEDDisplay::showPlayingScreen(const char* title) {
 }
 
 void OLEDDisplay::showErrorScreen(const char* errorMsg) {
+    if (!m_displayConnected) return;
     m_u8g2.clearBuffer();
     m_u8g2.setFont(u8g2_font_7x14B_tf);
     m_u8g2.drawStr(30, 20, "ERROR!");
@@ -259,7 +284,7 @@ void OLEDDisplay::showErrorScreen(const char* errorMsg) {
 }
 
 void OLEDDisplay::renderFrame(const uint8_t* frame1024) {
-    if (!frame1024) return;
+    if (!m_displayConnected || !frame1024) return;
 
     // Send 8 pages of 128 bytes directly to SSD1306 (0x3C)
     // Runs in ~13ms total (compared to 50ms in U8g2)

@@ -17,10 +17,17 @@
 // --- Display & Physical Button Pin Configuration ---
 #define OLED_SDA 13                      // GPIO 13: I2C SDA
 #define OLED_SCL 14                      // GPIO 14: I2C SCL
-#define PIN_BUTTON_SCROLL 4              // GPIO 4:  Scroll down (Active-LOW to GND)
-#define PIN_BUTTON_SELECT 5              // GPIO 5:  Select / Play / Pause (Active-LOW to GND)
+#define PIN_BUTTON_SCROLL 27              // GPIO 27:  Scroll down (Active-LOW to GND)
+#define PIN_BUTTON_SELECT 12             // GPIO 12:  Select / Play / Pause (Active-LOW to GND)
 
 // --- Wi-Fi Configuration ---
+#if __has_include("secrets.h")
+#include "secrets.h"
+#elif __has_include("secrets.example.h")
+#include "secrets.example.h"
+#endif
+
+// Fallbacks if not provided in secrets.h
 #ifndef WIFI_SSID
 #define WIFI_SSID "YourWiFiSSID"
 #endif
@@ -29,15 +36,15 @@
 #define WIFI_PASSWORD "YourWiFiPassword"
 #endif
 
-// Secondary / Fallback Wi-Fi
 #ifndef WIFI_FALLBACK_SSID
-#define WIFI_FALLBACK_SSID "YourFallbackWiFiSSID"
+#define WIFI_FALLBACK_SSID "YourFallbackSSID"
 #endif
 
 #ifndef WIFI_FALLBACK_PASSWORD
-#define WIFI_FALLBACK_PASSWORD "YourFallbackWiFiPassword"
+#define WIFI_FALLBACK_PASSWORD "YourFallbackPassword"
 #endif
 
+// Wi-Fi connection timeout and reconnection intervals (in milliseconds)
 #define WIFI_CONNECT_TIMEOUT_MS 15000
 #define WIFI_RECONNECT_INTERVAL_MS 9000
 

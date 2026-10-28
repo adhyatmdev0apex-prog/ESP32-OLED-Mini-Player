@@ -47,6 +47,9 @@
 #include <string.h>
 #include <math.h>
 #include <vector>
+#include <esp_bt.h>
+#include <esp_bt_main.h>
+#include "../../display/oled_display.h"
 
 
 // ============================================================
@@ -632,6 +635,48 @@ void bluetoothAudioEnd()
     s_initialized = false;
     Serial.println(BT_TAG "Stopped.");
 }
+
+void bluetoothAudioSuspend()
+{
+    if (s_state == BluetoothState::OFF && !s_initialized) {
+        return;
+    }
+    Serial.println(BT_TAG "Suspending BT & releasing controller RAM for HTTPS TLS...");
+    bluetoothAudioEnd();
+    delay(50);
+    if (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED) {
+        esp_bluedroid_disable();
+    }
+    if (esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_INITIALIZED) {
+        esp_bluedroid_deinit();
+    }
+    btStop();
+    delay(50);
+    Serial.printf("[MEM] Bluetooth released: Free heap: %u, Largest block: %u\n",
+                  (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+}
+
+void bluetoothAudioRestore(bool waitForReconnect)
+{
+    Serial.println(BT_TAG "Restoring Bluetooth stack...");
+    btStart();
+    bluetoothAudioBegin();
+    if (waitForReconnect) {
+        Serial.println(BT_TAG "Waiting for Bluetooth speaker to reconnect...");
+        OLEDDisplay::getInstance().showStatusScreen("Bluetooth Audio", "Reconnecting...", "Please wait");
+        uint32_t waitStart = millis();
+        while (!bluetoothAudioStreaming() && (millis() - waitStart < 15000)) {
+            bluetoothAudioUpdate();
+            delay(20);
+        }
+        if (bluetoothAudioStreaming()) {
+            Serial.println(BT_TAG "Bluetooth speaker reconnected & streaming!");
+        } else {
+            Serial.println(BT_TAG "Bluetooth reconnect wait finished; playback will auto-sync on connect.");
+        }
+    }
+}
+
 
 
 // ============================================================

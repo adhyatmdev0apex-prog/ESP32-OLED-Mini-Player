@@ -29,6 +29,7 @@ public:
     void renderFrame(const uint8_t* frame1024);
 
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C& getU8g2() { return m_u8g2; }
+    bool isConnected() const { return m_displayConnected; }
 
 private:
     OLEDDisplay();
@@ -38,6 +39,7 @@ private:
     OLEDDisplay& operator=(const OLEDDisplay&) = delete;
 
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C m_u8g2;
+    bool m_displayConnected;
 };
 
 #endif // OLED_DISPLAY_H
